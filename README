@@ -1,0 +1,13 @@
+GLMdenoise is a MATLAB toolbox developed by 
+  Kendrick Kay, kendrick@post.harvard.edu, http://kendrickkay.net
+
+Terms of use: This code is licensed under a Creative Commons Attribution 3.0 Unported License. You are free to share and adapt the code as you please, under the condition that you give appropriate credit.
+
+To use the toolbox, add it to your MATLAB path:
+  addpath(genpath('GLMdenoise'));
+
+History of major code changes:
+- 2012/11/03 - Initial version.
+
+Example usage and example datasets:
+- (coming soon)
