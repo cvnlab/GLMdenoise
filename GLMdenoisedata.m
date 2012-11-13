@@ -12,7 +12,7 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %   vector of elements that are each X x Y x Z x time.  XYZ can be collapsed.
 %   The dimensions of <data> should mirror that of <design>.  (For example, 
 %   <design> and <data> should have the same number of runs, the same number 
-%   of time points, etc.)  <data> should not contain any NaNs.
+%   of time points, etc.)  <data> should not contain any NaNs. 
 % <stimdur> is the duration of a trial in seconds
 % <tr> is the sampling rate in seconds
 % <hrfmodel> (optional) indicates the type of model to use for the HRF:
@@ -210,6 +210,11 @@ if ~iscell(design)
 end
 if ~iscell(data)
   data = {data};
+end
+
+% Cast to single: 
+for i=1:numel(data)
+    data{i} = single(data{i});
 end
 
 % calc
