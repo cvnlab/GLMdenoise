@@ -15,7 +15,6 @@ end
 clear p files;
 
 % Add GLMdenoise to the MATLAB path (in case the user has not already done so).
-path0 = strrep(which('setup.m'),'/GLMdenoise/setup.m','');
-addpath([path0 '/GLMdenoise']);
-addpath([path0 '/GLMdenoise/utilities']);
+path0 = strrep(which('setup.m'),'/setup.m','');
+addpath(genpath(path0));
 clear path0;

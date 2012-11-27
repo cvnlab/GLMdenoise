@@ -2,8 +2,7 @@ GLMdenoise is a MATLAB toolbox for analyzing and denoising task-based fMRI data.
 It is developed by Kendrick Kay (kendrick@post.harvard.edu).
 
 To use the toolbox, add it to your MATLAB path:
-  addpath('GLMdenoise');
-  addpath('GLMdenoise/utilities');
+  addpath(genpath('GLMdenoise'));
 
 To try the toolbox on an example dataset, change to the GLMdenoise directory 
 and then type:
@@ -13,6 +12,8 @@ downloaded) and will run the toolbox on the dataset.
 
 For additional information, please visit:
   http://kendrickkay.net/GLMdenoise/
+
+Current version number: 1.01.
 
 History of major code changes:
 - 2012/11/24 - Version 1.0.
