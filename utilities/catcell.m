@@ -1,6 +1,6 @@
-function f = catcell(dim,m)
+function m = catcell(dim,m)
 
-% function f = catcell(dim,m)
+% function m = catcell(dim,m)
 %
 % <dim> is the dimension to concatenate along
 % <m> is a cell matrix
@@ -12,4 +12,14 @@ function f = catcell(dim,m)
 % example:
 % isequal(catcell(2,{1 2 3}),[1 2 3])
 
-f = cat(dim,m{:});
+m = cat(dim,m{:});
+
+% f = [];
+% for p=1:numel(m)
+%   if p == 1
+%     f = m{p};
+%   else
+%     f = cat(dim,f,m{p});
+%   end
+%   m{p} = [];
+% end

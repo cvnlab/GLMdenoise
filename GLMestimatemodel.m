@@ -1,6 +1,6 @@
-function results = GLMestimatemodel(design,data,hrfmodel,hrfknobs,resampling,opt,mode)
+function results = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfknobs,resampling,opt,mode)
 
-% function results = GLMestimatemodel(design,data,hrfmodel,hrfknobs,resampling,opt)
+% function results = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfknobs,resampling,opt)
 %
 % <design> is the experimental design with dimensions time x conditions.
 %   Each column should be zeros except for ones indicating condition onsets.
@@ -11,12 +11,14 @@ function results = GLMestimatemodel(design,data,hrfmodel,hrfknobs,resampling,opt
 %   The dimensions of <data> should mirror that of <design>.  (For example, 
 %   <design> and <data> should have the same number of runs, the same number 
 %   of time points, etc.)  <data> should not contain any NaNs.
+% <stimdur> is the duration of a trial in seconds
+% <tr> is the sampling rate in seconds
 % <hrfmodel> indicates the type of model to use for the HRF:
 %   'fir' indicates a finite impulse response model (a separate timecourse
 %     is estimated for every voxel and every condition)
 %   'assume' indicates that the HRF is provided (see <hrfknobs>)
 %   'optimize' indicates that we should estimate a global HRF from the data
-% <hrfknobs> is as follows:
+% <hrfknobs> (optional) is as follows:
 %   if <hrfmodel> is 'fir', then <hrfknobs> should be the number of 
 %     time points in the future to model (N >= 0).  For example, if N is 10, 
 %     then timecourses will consist of 11 points, with the first point 
@@ -30,7 +32,9 @@ function results = GLMestimatemodel(design,data,hrfmodel,hrfknobs,resampling,opt
 %   'optimize', we automatically divide <hrfknobs> by the maximum value
 %   so that the peak is equal to 1.  And if <hrfmodel> is 'optimize',
 %   then after fitting the HRF, we again normalize the HRF to peak at 1
-%   (and adjust amplitudes accordingly).
+%   (and adjust amplitudes accordingly).  Default in the case of 'fir' is
+%   20.  Default in the case of 'assume' and 'optimize' is to use a 
+%   canonical HRF that is calculated based on <stimdur> and <tr>.
 % <resampling> specifies the resampling scheme:
 %   0 means fit fully (don't bootstrap or cross-validate)
 %   A means bootstrap A times (A >= 1)
@@ -65,10 +69,20 @@ function results = GLMestimatemodel(design,data,hrfmodel,hrfknobs,resampling,opt
 %     global HRF.  This input matters only when <hrfmodel> is 'optimize'.
 %     Default: 50.  (If there are fewer than that number of voxels
 %     available, we just use the voxels that are available.)
+%   <hrffitmask> (optional) is X x Y x Z with 1s indicating all possible
+%     voxels to consider for fitting the global HRF.  This input matters
+%     only when <hrfmodel> is 'optimize'.  Special case is 1 which means
+%     all voxels can be potentially chosen.  Default: 1.
+%   <wantpercentbold> (optional) is whether to convert the amplitude estimates
+%     in 'models', 'modelmd', and 'modelse' to percent BOLD change.  This is
+%     done as the very last step, and is accomplished by dividing by the 
+%     absolute value of 'meanvol' and multiplying by 100.  (The absolute 
+%     value prevents negative values in 'meanvol' from flipping the sign.)
+%     Default: 1.
 %
-% Based on the experimental design (<design>) and the model specification
-% (<hrfmodel>, <hrfknobs>), fit a GLM model to the data (<data>) using
-% a certain resampling scheme (<resampling>).
+% Based on the experimental design (<design>, <stimdur>, <tr>) and the model 
+% specification (<hrfmodel>, <hrfknobs>), fit a GLM model to the data (<data>) 
+% using a certain resampling scheme (<resampling>).
 %
 % Return <results> as a struct containing the following fields:
 % <models> contains the full set of model estimates (e.g. all bootstrap results)
@@ -86,6 +100,19 @@ function results = GLMestimatemodel(design,data,hrfmodel,hrfknobs,resampling,opt
 %     predictions and the data are each aggregated across runs before
 %     the computation of R^2.)
 % <R2run> is X x Y x Z x runs with R^2 values calculated on a per-run basis.
+% <signal> is X x Y x Z with the maximum absolute amplitude in <modelmd>
+%   (this is computed over all conditions and time points in the case of 'fir'
+%   and over all conditions in the case of 'assume' and 'optimize').
+% <noise> is X x Y x Z with the average amplitude error in <modelse>.
+% <SNR> is X x Y x Z with <signal> divided by <noise>.
+% <hrffitvoxels> is X x Y x Z with 1s indicating the voxels used for fitting
+%   the global HRF.  This input is returned as [] if <hrfmodel> is not 'optimize'.
+%   In the bootstrap and cross-validation cases, <hrffitvoxels> indicates the
+%   voxels corresponding to the last iteration.
+% <meanvol> is X x Y x Z with the mean of all volumes
+% <inputs> is a struct containing all inputs used in the call to this
+%   function, excluding <data>.  We additionally include a field called 
+%   'datasize' which contains the size of each element of <data>.
 %
 % Additional details on the format of <models>, <modelmd>, and <modelse>:
 % - If <hrfmodel> is 'fir', then model estimates consist of timecourses:
@@ -153,7 +180,10 @@ function results = GLMestimatemodel(design,data,hrfmodel,hrfknobs,resampling,opt
 % case occured.)
 %
 % History:
-% - 2012/11/03 - add a speed-up
+% - 2012/11/24:
+%   - INPUTS: add stimdur and tr; hrfknobs is optional now; add opt.hrffitmask; add opt.wantpercentbold
+%   - OUTPUTS: add signal,noise,SNR; add hrffitvoxels; add meanvol; add inputs
+%   - add a speed-up (design2pre)
 % - 2012/11/02 - Initial version.
 % - 2012/10/30 - Automatic division of HRF. Ensure one complete round of fitting in optimize case.
 %                Add sanity check on HRF.
@@ -166,6 +196,13 @@ function results = GLMestimatemodel(design,data,hrfmodel,hrfknobs,resampling,opt
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% DEAL WITH INPUTS, ETC.
 
 % input
+if ~exist('hrfknobs','var') || isempty(hrfknobs)
+  if isequal(hrfmodel,'fir')
+    hrfknobs = 20;
+  else
+    hrfknobs = normalizemax(getcanonicalhrf(stimdur,tr)');
+  end
+end
 if ~exist('opt','var') || isempty(opt)
   opt = struct();
 end
@@ -217,12 +254,24 @@ end
 if ~isfield(opt,'numforhrf') || isempty(opt.numforhrf)
   opt.numforhrf = 50;
 end
+if ~isfield(opt,'hrffitmask') || isempty(opt.hrffitmask)
+  opt.hrffitmask = 1;
+end
+if ~isfield(opt,'wantpercentbold') || isempty(opt.wantpercentbold)
+  opt.wantpercentbold = 1;
+end
 if isequal(hrfmodel,'assume') || isequal(hrfmodel,'optimize')
   hrfknobs = normalizemax(hrfknobs);
 end
 if length(opt.maxpolydeg) == 1
   opt.maxpolydeg = repmat(opt.maxpolydeg,[1 numruns]);
 end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% CALCULATE MEAN VOLUME
+
+volcnt = cellfun(@(x) size(x,dimtime),data);
+meanvol = reshape(catcell(2,cellfun(@(x) squish(mean(x,dimtime),dimdata),data,'UniformOutput',0)) ...
+                  * (volcnt' / sum(volcnt)),[xyzsize 1]);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% DEAL WITH NUISANCE COMPONENTS
 
@@ -267,8 +316,9 @@ case 'full'
   
   % fit the model to the entire dataset.  we obtain just one analysis result.
   fprintf('fitting model...');
-  results = {fitmodel_helper(design,data2,hrfmodel,hrfknobs, ...
-                             opt,combinedmatrix,dimdata,dimtime,xyzsize)};
+  results = {};
+  [results{1},hrffitvoxels] = fitmodel_helper(design,data2,hrfmodel,hrfknobs, ...
+                              opt,combinedmatrix,dimdata,dimtime,xyzsize);
   fprintf('done.\n');
 
 case 'boot'
@@ -292,8 +342,8 @@ case 'boot'
     end
     
     % fit the model to the bootstrap sample
-    results{p} = fitmodel_helper(design(ix),data2(ix),hrfmodel,hrfknobs, ...
-                                 opt,combinedmatrix(ix),dimdata,dimtime,xyzsize);
+    [results{p},hrffitvoxels] = fitmodel_helper(design(ix),data2(ix),hrfmodel,hrfknobs, ...
+                                opt,combinedmatrix(ix),dimdata,dimtime,xyzsize);
     
   end
   fprintf('done.\n');
@@ -314,8 +364,8 @@ case 'xval'
     ix = setdiff(1:numruns,p);
     
     % fit the model
-    results{p} = fitmodel_helper(design(ix),data2(ix),hrfmodel,hrfknobs, ...
-                                 opt,combinedmatrix(ix),dimdata,dimtime,xyzsize);
+    [results{p},hrffitvoxels] = fitmodel_helper(design(ix),data2(ix),hrfmodel,hrfknobs, ...
+                                opt,combinedmatrix(ix),dimdata,dimtime,xyzsize);
     
     % compute the prediction
     modelfit{p} = GLMpredictresponses(results{p},design{p},1);  % 1 because results{p} is in flattened format
@@ -425,21 +475,87 @@ clear modelfit;  % big memory usage
 
 fprintf('done.\n');
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% COMPUTE SNR
+
+fprintf('computing SNR...');
+
+if ~(isequal(resamplecase,'xval') && mode==1)
+
+  switch hrfmodel
+  
+  case 'fir'
+    results.signal = max(max(abs(results.modelmd),[],4),[],5);
+    results.noise = mean(mean(results.modelse,4),5);
+    results.SNR = results.signal ./ results.noise;
+  
+  case {'assume' 'optimize'}
+    results.signal = max(abs(results.modelmd{2}),[],4);
+    results.noise = mean(results.modelse{2},4);
+    results.SNR = results.signal ./ results.noise;
+    
+  end
+
+end
+
+fprintf('done.\n');
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% PREPARE ADDITIONAL OUTPUTS
+
+% this is a special case
+if isempty(hrffitvoxels)
+  results.hrffitvoxels = [];
+else
+  results.hrffitvoxels = copymatrix(zeros([xyzsize 1]),hrffitvoxels,1);
+end
+results.meanvol = meanvol;
+
+% return all the inputs (except for the data) in the output.
+% also, include a new field 'datasize'.
+results.inputs.design = design;
+results.inputs.datasize = cellfun(@(x) size(x),data,'UniformOutput',0);
+results.inputs.stimdur = stimdur;
+results.inputs.tr = tr;
+results.inputs.hrfmodel = hrfmodel;
+results.inputs.hrfknobs = hrfknobs;
+results.inputs.resampling = resampling;
+results.inputs.opt = opt;
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% CONVERT TO % BOLD CHANGE
+
+if opt.wantpercentbold && ~(isequal(resamplecase,'xval') && mode==1)
+  con = 1./abs(results.meanvol) * 100;
+  switch hrfmodel
+  case 'fir'
+    results.models = bsxfun(@times,results.models,con);
+    results.modelmd = bsxfun(@times,results.modelmd,con);
+    results.modelse = bsxfun(@times,results.modelse,con);
+  case {'assume' 'optimize'}
+    results.models{2} = bsxfun(@times,results.models{2},con);
+    results.modelmd{2} = bsxfun(@times,results.modelmd{2},con);
+    results.modelse{2} = bsxfun(@times,results.modelse{2},con);
+  end
+end
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% HELPER FUNCTION:
 
-function f = fitmodel_helper(design,data2,hrfmodel,hrfknobs,opt,combinedmatrix,dimdata,dimtime,xyzsize)
+function [f,hrffitvoxels] = fitmodel_helper(design,data2,hrfmodel,hrfknobs,opt,combinedmatrix,dimdata,dimtime,xyzsize)
 
 % if hrfmodel is 'fir', then <f> will be voxels x conditions x time (flattened format)
 % if hrfmodel is 'assume' or 'optimize', then <f> will be {A B}
-%   where A is time x 1 and B is voxels x conditions (flattened format)
+%   where A is time x 1 and B is voxels x conditions (flattened format).
+% <hrffitvoxels> is [] unless hrfmodel is 'optimize', in which case it will be
+%   a column vector of voxel indices.
 
 % internal constants
 minR2 = 99;  % in 'optimize' mode, if R^2 between previous HRF and new HRF
              % is above this threshold (and we have at least gone through
              % one complete round of fitting (just so that we can change
              % a little from the initial seed)), then we stop fitting.
+
+% init
+hrffitvoxels = [];
 
 switch hrfmodel
 case 'fir'
@@ -487,6 +603,17 @@ case 'optimize'
   % calc
   numinhrf = length(hrfknobs);
   numcond = size(design{1},2);
+  
+  % precompute for speed
+  design2pre = {};
+  for p=1:length(design)
+    
+    % expand design matrix using delta functions
+    ntime = size(design{p},1);              % number of time points
+    design2pre{p} = constructstimulusmatrices(full(design{p})',0,numinhrf-1,0);  % time x L*conditions
+    design2pre{p} = reshape(design2pre{p},[],numcond);  % time*L x conditions
+
+  end
 
   % loop until convergence
   currenthrf = hrfknobs;  % initialize
@@ -519,8 +646,16 @@ case 'optimize'
       clear modelfit;
     
       % figure out indices of good voxels
-      [dd,ii] = sort(nanreplace(R2,-Inf));
-      goodvoxels = ii(max(1,end-opt.numforhrf+1):end);
+      if isequal(opt.hrffitmask,1)
+        temp = R2;
+      else
+        temp = copymatrix(R2,~opt.hrffitmask(:),-Inf);  % shove -Inf in where invalid
+      end
+      temp = nanreplace(temp,-Inf);
+      [dd,ii] = sort(temp);
+      iichosen = ii(max(1,end-opt.numforhrf+1):end);
+      iichosen = setdiff(iichosen,iichosen(temp(iichosen)==-Inf));
+      hrffitvoxels = iichosen;
    
     % fix the amplitudes, estimate the HRF
     else
@@ -529,13 +664,11 @@ case 'optimize'
       design2 = {};
       for p=1:length(design)
         
-        % expand design matrix using delta functions
+        % calc
         ntime = size(design{p},1);              % number of time points
-        design2{p} = constructstimulusmatrices(full(design{p})',0,numinhrf-1,0);  % time x L*conditions
-        design2{p} = reshape(design2{p},[],numcond);  % time*L x conditions
         
         % weight and sum based on the current amplitude estimates.  only include the good voxels.
-        design2{p} = design2{p} * currentbeta(:,goodvoxels);  % time*L x voxels
+        design2{p} = design2pre{p} * currentbeta(:,hrffitvoxels);  % time*L x voxels
         
         % remove polynomials and extra regressors
         design2{p} = reshape(design2{p},ntime,[]);  % time x L*voxels
@@ -546,7 +679,7 @@ case 'optimize'
 
       % estimate the HRF
       previoushrf = currenthrf;
-      datasubset = cellfun(@(x) x(:,goodvoxels),data2,'UniformOutput',0);
+      datasubset = cellfun(@(x) x(:,hrffitvoxels),data2,'UniformOutput',0);
       currenthrf = olsmatrix(squish(cat(1,design2{:}),2)) * vflatten(cat(1,datasubset{:}));
 
       % check for convergence
@@ -563,7 +696,7 @@ case 'optimize'
   % sanity check
   if calccod(hrfknobs,previoushrf,[],0,0) < 50
     warning('Global HRF estimate is far from the initial seed, probably indicating low SNR.  We are just going to use the initial seed as the HRF estimate.');
-    f = fitmodel_helper(design,data2,'assume',hrfknobs,opt,combinedmatrix);
+    [f,hrffitvoxels] = fitmodel_helper(design,data2,'assume',hrfknobs,opt,combinedmatrix);
     return;
   end
 

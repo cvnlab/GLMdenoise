@@ -71,8 +71,9 @@ end
 nrows = size(m,1);
 ncols = size(m,2);
 
-% make <m> double if necessary
+% make double if necessary
 m = double(m);
+wantnorm = double(wantnorm);
 
 % make <m> 3D if necessary
 m = reshape(m,size(m,1),size(m,2),[]);
