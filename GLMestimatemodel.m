@@ -179,7 +179,17 @@ function results = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfknobs,res
 % exactly overlapping on the figure, this indicates that the exception 
 % case occured.)
 %
+% Additional information:
+% - In some circumstances (e.g. using a FIR model with insufficient data),
+% the design matrix may be singular and there is no unique solution.  Our
+% strategy for these cases is as follows: If MATLAB issues a warning during 
+% the inversion of the autocorrelation matrix (i.e. X'*X), then program 
+% execution halts.
+%
 % History:
+% - 2012/12/03: *** Tag: Version 1.02 ***. Use faster OLS computation (less
+%   error-checking; program execution will halt if design matrix is singular);
+%   implement various speed-ups; minor bug fixes.
 % - 2012/11/24:
 %   - INPUTS: add stimdur and tr; hrfknobs is optional now; add opt.hrffitmask; add opt.wantpercentbold
 %   - OUTPUTS: add signal,noise,SNR; add hrffitvoxels; add meanvol; add inputs
@@ -318,7 +328,7 @@ case 'full'
   fprintf('fitting model...');
   results = {};
   [results{1},hrffitvoxels] = fitmodel_helper(design,data2,hrfmodel,hrfknobs, ...
-                              opt,combinedmatrix,dimdata,dimtime,xyzsize);
+                              opt,combinedmatrix,dimdata,dimtime,xyzsize,[]);
   fprintf('done.\n');
 
 case 'boot'
@@ -327,6 +337,12 @@ case 'boot'
   
   % set random seed
   setrandstate({opt.seed});
+
+  % in this case (bootstrap + optimize), we should do a pre-call to get some cache
+  if isequal(hrfmodel,'optimize')
+    [d,d,cache] = fitmodel_helper(design,data2,hrfmodel,hrfknobs, ...
+                                opt,combinedmatrix,dimdata,dimtime,xyzsize,[]);
+  end
 
   % loop over bootstraps and collect up the analysis results.
   results = {};
@@ -342,8 +358,13 @@ case 'boot'
     end
     
     % fit the model to the bootstrap sample
+    if isequal(hrfmodel,'optimize')
+      cache2 = struct('design2pre',{cache.design2pre(ix)});
+    else
+      cache2 = [];
+    end
     [results{p},hrffitvoxels] = fitmodel_helper(design(ix),data2(ix),hrfmodel,hrfknobs, ...
-                                opt,combinedmatrix(ix),dimdata,dimtime,xyzsize);
+                                opt,combinedmatrix(ix),dimdata,dimtime,xyzsize,cache2);
     
   end
   fprintf('done.\n');
@@ -365,7 +386,7 @@ case 'xval'
     
     % fit the model
     [results{p},hrffitvoxels] = fitmodel_helper(design(ix),data2(ix),hrfmodel,hrfknobs, ...
-                                opt,combinedmatrix(ix),dimdata,dimtime,xyzsize);
+                                opt,combinedmatrix(ix),dimdata,dimtime,xyzsize,[]);
     
     % compute the prediction
     modelfit{p} = GLMpredictresponses(results{p},design{p},1);  % 1 because results{p} is in flattened format
@@ -484,13 +505,13 @@ if ~(isequal(resamplecase,'xval') && mode==1)
   switch hrfmodel
   
   case 'fir'
-    results.signal = max(max(abs(results.modelmd),[],4),[],5);
-    results.noise = mean(mean(results.modelse,4),5);
+    results.signal = max(max(abs(results.modelmd),[],dimdata+1),[],dimdata+2);
+    results.noise = mean(mean(results.modelse,dimdata+1),dimdata+2);
     results.SNR = results.signal ./ results.noise;
   
   case {'assume' 'optimize'}
-    results.signal = max(abs(results.modelmd{2}),[],4);
-    results.noise = mean(results.modelse{2},4);
+    results.signal = max(abs(results.modelmd{2}),[],dimdata+1);
+    results.noise = mean(results.modelse{2},dimdata+1);
     results.SNR = results.signal ./ results.noise;
     
   end
@@ -540,7 +561,7 @@ end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% HELPER FUNCTION:
 
-function [f,hrffitvoxels] = fitmodel_helper(design,data2,hrfmodel,hrfknobs,opt,combinedmatrix,dimdata,dimtime,xyzsize)
+function [f,hrffitvoxels,cache] = fitmodel_helper(design,data2,hrfmodel,hrfknobs,opt,combinedmatrix,dimdata,dimtime,xyzsize,cache)
 
 % if hrfmodel is 'fir', then <f> will be voxels x conditions x time (flattened format)
 % if hrfmodel is 'assume' or 'optimize', then <f> will be {A B}
@@ -576,7 +597,7 @@ case 'fir'
   end
   
   % fit model
-  f = mtimescell(olsmatrix(cat(1,design{:})),data2);  % L*conditions x voxels
+  f = mtimescell(olsmatrix2(cat(1,design{:})),data2);  % L*conditions x voxels
   f = permute(reshape(f,hrfknobs+1,numconditions,[]),[3 2 1]);  % voxels x conditions x L
 
 case 'assume'
@@ -595,7 +616,7 @@ case 'assume'
   end
   
   % fit model
-  f = mtimescell(olsmatrix(cat(1,design{:})),data2);  % conditions x voxels
+  f = mtimescell(olsmatrix2(cat(1,design{:})),data2);  % conditions x voxels
   f = {hrfknobs f'};
 
 case 'optimize'
@@ -604,15 +625,26 @@ case 'optimize'
   numinhrf = length(hrfknobs);
   numcond = size(design{1},2);
   
-  % precompute for speed
-  design2pre = {};
-  for p=1:length(design)
-    
-    % expand design matrix using delta functions
-    ntime = size(design{p},1);              % number of time points
-    design2pre{p} = constructstimulusmatrices(full(design{p})',0,numinhrf-1,0);  % time x L*conditions
-    design2pre{p} = reshape(design2pre{p},[],numcond);  % time*L x conditions
+  % if cache is empty, fill it
+  if isempty(cache)
 
+    % precompute for speed
+    design2pre = {};
+    for p=1:length(design)
+      
+      % expand design matrix using delta functions
+      ntime = size(design{p},1);              % number of time points
+      design2pre{p} = constructstimulusmatrices(full(design{p})',0,numinhrf-1,0);  % time x L*conditions
+      design2pre{p} = reshape(design2pre{p},[],numcond);  % time*L x conditions
+  
+    end
+    
+    % record it
+    cache.design2pre = design2pre;
+
+  % otherwise, use the cache
+  else
+    design2pre = cache.design2pre;
   end
 
   % loop until convergence
@@ -638,7 +670,7 @@ case 'optimize'
       end
 
       % estimate the amplitudes
-      currentbeta = mtimescell(olsmatrix(cat(1,design2{:})),data2);  % conditions x voxels
+      currentbeta = mtimescell(olsmatrix2(cat(1,design2{:})),data2);  % conditions x voxels
 
       % calculate R^2
       modelfit = cellfun(@(x) x*currentbeta,design2,'UniformOutput',0);
@@ -680,7 +712,7 @@ case 'optimize'
       % estimate the HRF
       previoushrf = currenthrf;
       datasubset = cellfun(@(x) x(:,hrffitvoxels),data2,'UniformOutput',0);
-      currenthrf = olsmatrix(squish(cat(1,design2{:}),2)) * vflatten(cat(1,datasubset{:}));
+      currenthrf = olsmatrix2(squish(cat(1,design2{:}),2)) * vflatten(cat(1,datasubset{:}));
 
       % check for convergence
       if calccod(previoushrf,currenthrf,[],0,0) >= minR2 && cnt > 2
@@ -696,7 +728,7 @@ case 'optimize'
   % sanity check
   if calccod(hrfknobs,previoushrf,[],0,0) < 50
     warning('Global HRF estimate is far from the initial seed, probably indicating low SNR.  We are just going to use the initial seed as the HRF estimate.');
-    [f,hrffitvoxels] = fitmodel_helper(design,data2,'assume',hrfknobs,opt,combinedmatrix);
+    [f,hrffitvoxels] = fitmodel_helper(design,data2,'assume',hrfknobs,opt,combinedmatrix,dimdata,dimtime,xyzsize,[]);
     return;
   end
 

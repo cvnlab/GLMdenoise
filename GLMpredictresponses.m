@@ -27,6 +27,7 @@ function responses = GLMpredictresponses(model,design,dimdata)
 %   also be a cell vector).
 %
 % History:
+% - 2012/12/03: *** Tag: Version 1.02 ***
 % - 2012/11/2 - Initial version.
 
 % calc

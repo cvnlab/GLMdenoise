@@ -257,7 +257,8 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %   step 7).  Note that these R^2 values are not cross-validated.
 % - "FinalModel_runN.png" shows R^2 values for the final model separated by 
 %   runs.  For example, FinalModel_run01.png indicates R^2 values calculated
-%   over the data in run 1.
+%   over the data in run 1.  This might be useful for deciding post-hoc to
+%   exclude certain runs from the analysis.
 % - "SNRsignal.png" shows the maximum absolute amplitude obtained (the signal).
 %   The range is 0 to the 99th percentile of the values.
 % - "SNRnoise.png" shows the average amplitude error (the noise).
@@ -273,6 +274,9 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % accuracy (R^2), please see the documentation provided in GLMestimatemodel.m.
 %
 % History:
+% - 2012/12/03: *** Tag: Version 1.02 ***. Use faster OLS computation (less
+%   error-checking; program execution will halt if design matrix is singular);
+%   documentation tweak; minor bug fix.
 % - 2012/11/24:
 %   - INPUTS: add opt.hrffitmask; opt.pcR2cutoff; opt.pcR2cutoffmask; opt.pcstop; opt.denoisespec; opt.wantpercentbold;
 %   - OUTPUTS: add hrffitvoxels, pcvoxels, pcweights, inputs
@@ -581,7 +585,7 @@ for p=1:numruns
   numpc = size(pcmatrix,2);
 
   % estimate weights
-  h = olsmatrix(cat(2,polymatrix,exmatrix,pcmatrix))*squish(data{p} - modelcomponent,dimdata)';  % parameters x voxels
+  h = olsmatrix2(cat(2,polymatrix,exmatrix,pcmatrix))*squish(data{p} - modelcomponent,dimdata)';  % parameters x voxels
 
   % record weights on global noise regressors
   results.pcweights(:,:,p) = h(numpoly+numex+(1:numpc),:)';
@@ -737,7 +741,7 @@ if ~isempty(figuredir)
   
   % write out signal, noise, and SNR
   imwrite(uint8(255*makeimagestack(results.signal,[0 prctile(results.signal(:),99)])),hot(256),[figuredir '/SNRsignal.png']);
-  imwrite(uint8(255*makeimagestack(results.noise,[0 prctile(results.noise(:),99)])),hot(256),[figuredir '/SNRnoise.png']);
+  imwrite(uint8(255*makeimagestack(results.noise,[0 max(eps,prctile(results.noise(:),99))])),hot(256),[figuredir '/SNRnoise.png']);
   imwrite(uint8(255*makeimagestack(results.SNR,[0 10])),hot(256),[figuredir '/SNR.png']);
   
   % write out maps of pc weights

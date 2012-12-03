@@ -13,9 +13,8 @@ downloaded) and will run the toolbox on the dataset.
 For additional information, please visit:
   http://kendrickkay.net/GLMdenoise/
 
-Current version number: 1.01.
-
 History of major code changes:
+- 2012/12/03 - Version 1.02. Various speed-ups and minor bug fixes.
 - 2012/11/24 - Version 1.0.
 
 Contents:
