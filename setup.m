@@ -8,7 +8,7 @@ files = {'exampledataset.mat'};
 for p=1:length(files)
   if ~exist(files{p},'file')
     fprintf('Downloading %s (please be patient).\n',files{p});
-    assert(unix(sprintf('curl -O http://kendrickkay.net/GLMdenoise/%s',files{p})) == 0);
+    urlwrite(sprintf('http://kendrickkay.net/GLMdenoise/%s',files{p}),files{p});
     fprintf('Downloading is done!\n');
   end
 end
