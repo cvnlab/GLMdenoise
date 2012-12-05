@@ -229,7 +229,9 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %   can be chosen for fitting the global HRF.  This figure is written only
 %   if <hrfmodel> is 'optimize' and is not written if opt.hrffitmask is 1.
 % - "HRFfitvoxels.png" shows (in white) the voxels used to fit the global HRF.
-%   This figure is written only if <hrfmodel> is 'optimize'.
+%   This figure is written only if <hrfmodel> is 'optimize' and only if
+%   the fitted global HRF is actually chosen for use (in some cases, the
+%   initial HRF estimate is chosen; see GLMestimatemodel.m).
 % - "PCselection.png" shows for different numbers of PCs, the median 
 %   cross-validated R^2 across a subset of voxels (namely, those voxels that 
 %   have greater than opt.pcR2cutoff (default: 0%) R^2 for at least one of 
@@ -274,6 +276,7 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % accuracy (R^2), please see the documentation provided in GLMestimatemodel.m.
 %
 % History:
+% - 2012/12/05: fix minor bug (bad HRF estimate caused figure crash)
 % - 2012/12/03: *** Tag: Version 1.02 ***. Use faster OLS computation (less
 %   error-checking; program execution will halt if design matrix is singular);
 %   documentation tweak; minor bug fix.
@@ -671,7 +674,7 @@ if ~isempty(figuredir)
   end
   
   % write out image showing HRF fit voxels
-  if isequal(hrfmodel,'optimize')
+  if isequal(hrfmodel,'optimize') && ~isempty(results.hrffitvoxels)
     imwrite(uint8(255*makeimagestack(results.hrffitvoxels,[0 1])),gray(256),[figuredir '/HRFfitvoxels.png']);
   end
 
