@@ -4,7 +4,7 @@ function f = constructstimulusmatrices(m,prenumlag,postnumlag,wantwrap)
 %
 % <m> is a 2D matrix, each row of which is a stimulus sequence (i.e.
 %   a vector that is all zeros except for ones indicating the onset
-%   of a given stimulus)
+%   of a given stimulus (fractional values are also okay))
 % <prenumlag> is the number of stimulus points in the past
 % <postnumlag> is the number of stimulus points in the future
 % <wantwrap> (optional) is whether to wrap around.  default: 0.
@@ -15,6 +15,9 @@ function f = constructstimulusmatrices(m,prenumlag,postnumlag,wantwrap)
 % matrix for the first stimulus sequence, the stimulus
 % matrix for the second stimulus sequence, and so on.
 % this function is useful for fitting finite impulse response (FIR) models.
+%
+% history:
+% 2013/05/12 - update doc to indicate fractional values are okay.
 %
 % example:
 % imagesc(constructstimulusmatrices([0 1 0 0 0 0 0 0 0; 0 0 1 0 0 0 0 0 0],0,3));
