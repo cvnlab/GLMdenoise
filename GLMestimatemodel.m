@@ -2,10 +2,17 @@ function results = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfknobs,res
 
 % function results = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfknobs,resampling,opt)
 %
-% <design> is the experimental design with dimensions time x conditions.
-%   Each column should be zeros except for ones indicating condition onsets.
-%   Can be a cell vector whose elements correspond to different runs.
-%   Different runs can have different numbers of time points.
+% <design> is the experimental design.  There are three possible cases:
+%   1. A where A is a matrix with dimensions time x conditions.
+%      Each column should be zeros except for ones indicating condition onsets.
+%      (Fractional values in the design matrix are also allowed.)
+%   2. {A1 A2 A3 ...} where each of the A's are like the previous case.
+%      The different A's correspond to different runs, and different runs
+%      can have different numbers of time points.
+%   3. {{C1_1 C2_1 C3_1 ...} {C1_2 C2_2 C3_2 ...} ...} where Ca_b
+%      is a vector of onset times for condition a in run b.  Time starts at 0 
+%      and is coincident with the acquisition of the first volume.  This case 
+%      is compatible only with <hrfmodel> set to 'assume'.
 % <data> is the time-series data with dimensions X x Y x Z x time or a cell
 %   vector of elements that are each X x Y x Z x time.  XYZ can be collapsed.
 %   The dimensions of <data> should mirror that of <design>.  (For example, 
@@ -146,6 +153,9 @@ function results = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfknobs,res
 % data points would be inappropriate due to temporal correlations in fMRI noise.)
 % For example, if there are 10 runs, each bootstrap sample consists of 10 runs 
 % drawn with replacement from the 10 runs.
+% - In cases of unbalanced designs, it is possible that a bootstrap sample contains
+% no occurrences of a given condition; in this case, a warning is reported and
+% the beta weight estimated for that condition is set to zero.
 %
 % Notes on the estimation of a global HRF:
 % - When <hrfmodel> is 'optimize', we estimate a global HRF from the data.  
@@ -188,6 +198,13 @@ function results = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfknobs,res
 % execution halts.
 %
 % History:
+% - 2013/05/12: allow <design> to specify onset times
+% - 2013/05/12: update to indicate fractional values in design matrix are allowed.
+% - 2013/05/12 - regressors that are all zero now receive a 0 weight (instead of crashing)
+% - 2013/05/12 - fixed a bug regarding how the extraregressors were being handled.
+%   previously, the extraregressors and the polynomial regressors were being regressed
+%   out sequentially, which is improper.  now, the two regressors are being fit
+%   simultaneously, which is the correct way to do it.
 % - 2012/12/06: automatically convert data to single format
 % - 2012/12/03: *** Tag: Version 1.02 ***. Use faster OLS computation (less
 %   error-checking; program execution will halt if design matrix is singular);
@@ -299,7 +316,8 @@ combinedmatrix = {};
 for p=1:numruns
 
   % this projects out polynomials
-  polymatrix{p} = projectionmatrix(constructpolynomialmatrix(size(data{p},dimtime),0:opt.maxpolydeg(p)));
+  pmatrix = constructpolynomialmatrix(size(data{p},dimtime),0:opt.maxpolydeg(p));
+  polymatrix{p} = projectionmatrix(pmatrix);
 
   % this projects out the extra regressors
   if isempty(opt.extraregressors{p})
@@ -309,7 +327,7 @@ for p=1:numruns
   end
   
   % this projects out both of them
-  combinedmatrix{p} = polymatrix{p}*exmatrix{p};
+  combinedmatrix{p} = projectionmatrix(cat(2,pmatrix,opt.extraregressors{p}));
 
 end
 
@@ -318,8 +336,9 @@ end
 % and data2 will have both polynomials and extra regressors removed.
 data2 = {};  % NOTE: data and data2 are big --- be careful of memory usage.
 for p=1:numruns
-  data{p} = polymatrix{p}*squish(data{p},dimdata)';
-  data2{p} = exmatrix{p}*data{p};
+  data{p} = squish(data{p},dimdata)';
+  data2{p} = combinedmatrix{p}*data{p};
+  data{p} = polymatrix{p}*data{p};
 end
 % note that data and data2 are now in flattened format (time x voxels)!!
 
@@ -334,7 +353,7 @@ case 'full'
   % fit the model to the entire dataset.  we obtain just one analysis result.
   fprintf('fitting model...');
   results = {};
-  [results{1},hrffitvoxels] = fitmodel_helper(design,data2,hrfmodel,hrfknobs, ...
+  [results{1},hrffitvoxels] = fitmodel_helper(design,data2,tr,hrfmodel,hrfknobs, ...
                               opt,combinedmatrix,dimdata,dimtime,xyzsize,[]);
   fprintf('done.\n');
 
@@ -347,7 +366,7 @@ case 'boot'
 
   % in this case (bootstrap + optimize), we should do a pre-call to get some cache
   if isequal(hrfmodel,'optimize')
-    [d,d,cache] = fitmodel_helper(design,data2,hrfmodel,hrfknobs, ...
+    [d,d,cache] = fitmodel_helper(design,data2,tr,hrfmodel,hrfknobs, ...
                                 opt,combinedmatrix,dimdata,dimtime,xyzsize,[]);
   end
 
@@ -370,7 +389,7 @@ case 'boot'
     else
       cache2 = [];
     end
-    [results{p},hrffitvoxels] = fitmodel_helper(design(ix),data2(ix),hrfmodel,hrfknobs, ...
+    [results{p},hrffitvoxels] = fitmodel_helper(design(ix),data2(ix),tr,hrfmodel,hrfknobs, ...
                                 opt,combinedmatrix(ix),dimdata,dimtime,xyzsize,cache2);
     
   end
@@ -392,11 +411,11 @@ case 'xval'
     ix = setdiff(1:numruns,p);
     
     % fit the model
-    [results{p},hrffitvoxels] = fitmodel_helper(design(ix),data2(ix),hrfmodel,hrfknobs, ...
+    [results{p},hrffitvoxels] = fitmodel_helper(design(ix),data2(ix),tr,hrfmodel,hrfknobs, ...
                                 opt,combinedmatrix(ix),dimdata,dimtime,xyzsize,[]);
     
     % compute the prediction
-    modelfit{p} = GLMpredictresponses(results{p},design{p},1);  % 1 because results{p} is in flattened format
+    modelfit(p) = GLMpredictresponses(results{p},{design{p}},tr,size(data2{p},1),1);  % 1 because results{p} is in flattened format
     
     % massage format
     modelfit{p} = reshape(modelfit{p},[xyzsize size(modelfit{p},2)]);
@@ -475,7 +494,7 @@ switch resamplecase
 case {'full' 'boot'}
 
   % compute the time-series fit corresponding to the final model estimate
-  modelfit = GLMpredictresponses(results.modelmd,design,dimdata);
+  modelfit = GLMpredictresponses(results.modelmd,design,tr,cellfun(@(x) size(x,1),data),dimdata);
 
 case 'xval'
 
@@ -568,7 +587,7 @@ end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% HELPER FUNCTION:
 
-function [f,hrffitvoxels,cache] = fitmodel_helper(design,data2,hrfmodel,hrfknobs,opt,combinedmatrix,dimdata,dimtime,xyzsize,cache)
+function [f,hrffitvoxels,cache] = fitmodel_helper(design,data2,tr,hrfmodel,hrfknobs,opt,combinedmatrix,dimdata,dimtime,xyzsize,cache)
 
 % if hrfmodel is 'fir', then <f> will be voxels x conditions x time (flattened format)
 % if hrfmodel is 'assume' or 'optimize', then <f> will be {A B}
@@ -587,6 +606,9 @@ hrffitvoxels = [];
 
 switch hrfmodel
 case 'fir'
+  
+  % since 'fir', we can assume design is not the onset case, but check it
+  assert(~iscell(design{1}));
   
   % calc
   numconditions = size(design{1},2);
@@ -611,14 +633,52 @@ case 'assume'
 
   % prepare design matrix
   for p=1:length(design)
+  
+    % if onset-time case
+    if iscell(design{p})
     
-    % convolve original design matrix with HRF
-    ntime = size(design{p},1);                    % number of time points
-    design{p} = conv2(full(design{p}),hrfknobs);  % convolve
-    design{p} = design{p}(1:ntime,:);             % extract desired subset
+      % calc
+      alltimes = linspacefixeddiff(0,tr,size(data2{p},1));
+      hrftimes = linspacefixeddiff(0,tr,length(hrfknobs));
+  
+      % loop over conditions
+      temp = zeros(size(data2{p},1),length(design{p}));  % this will be time x conditions
+      for q=1:length(design{p})
+
+        % onset times for qth condition in run p
+        otimes = design{p}{q};
     
-    % remove polynomials and extra regressors
-    design{p} = combinedmatrix{p}*design{p};  % time x conditions
+        % intialize
+        yvals = 0;
+    
+        % loop over onset times
+        for r=1:length(otimes)
+        
+          % interpolate to find values at the data sampling time points
+          yvals = yvals + interp1(otimes(r) + hrftimes,hrfknobs',alltimes,'cubic',0);
+
+        end
+
+        % record
+        temp(:,q) = yvals;
+
+      end
+      
+      % remove polynomials and extra regressors
+      design{p} = combinedmatrix{p}*temp;  % time x conditions
+    
+    % if regular matrix case
+    else
+    
+      % convolve original design matrix with HRF
+      ntime = size(design{p},1);                    % number of time points
+      design{p} = conv2(full(design{p}),hrfknobs);  % convolve
+      design{p} = design{p}(1:ntime,:);             % extract desired subset
+    
+      % remove polynomials and extra regressors
+      design{p} = combinedmatrix{p}*design{p};  % time x conditions
+
+    end
 
   end
   
@@ -627,6 +687,9 @@ case 'assume'
   f = {hrfknobs f'};
 
 case 'optimize'
+
+  % since 'optimize', we can assume design is not the onset case, but check it
+  assert(~iscell(design{1}));
 
   % calc
   numinhrf = length(hrfknobs);
@@ -735,7 +798,7 @@ case 'optimize'
   % sanity check
   if calccod(hrfknobs,previoushrf,[],0,0) < 50
     warning('Global HRF estimate is far from the initial seed, probably indicating low SNR.  We are just going to use the initial seed as the HRF estimate.');
-    [f,hrffitvoxels] = fitmodel_helper(design,data2,'assume',hrfknobs,opt,combinedmatrix,dimdata,dimtime,xyzsize,[]);
+    [f,hrffitvoxels] = fitmodel_helper(design,data2,tr,'assume',hrfknobs,opt,combinedmatrix,dimdata,dimtime,xyzsize,[]);
     return;
   end
 
