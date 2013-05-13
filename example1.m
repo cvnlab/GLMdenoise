@@ -228,7 +228,10 @@ end
 % To ensure that the SNR values reflect only changes in the noise level, 
 % we ignore the SNR computed in each individual GLMdenoisedata call and
 % re-compute SNR, holding the numerator (the signal) constant across the
-% two calls.
+% two calls.  (Note: GLMdenoisedata automatically writes out a figure that
+% shows a before-and-after SNR comparison (SNRcomparebeforeandafter.png).
+% What is shown in this script does the comparison manually just for sake
+% of example.)
 ok = results.pcR2(:,:,:,1) > 0;
 signal = mean([results.signal(ok) resultsALT.signal(ok)],2);
 snr1 = signal ./ resultsALT.noise(ok);
