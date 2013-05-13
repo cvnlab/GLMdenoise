@@ -2,18 +2,26 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 
 % function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel,hrfknobs,opt,figuredir)
 %
-% <design> is the experimental design with dimensions time x conditions.
-%   Each column should be zeros except for ones indicating condition onsets.
-%   Can be a cell vector whose elements correspond to different runs.
-%   Different runs can have different numbers of time points.
-%   Because this function involves cross-validation across runs, 
-%   there must be at least two runs in <design>.
+% <design> is the experimental design.  There are three possible cases:
+%   1. A where A is a matrix with dimensions time x conditions.
+%      Each column should be zeros except for ones indicating condition onsets.
+%      (Fractional values in the design matrix are also allowed.)
+%   2. {A1 A2 A3 ...} where each of the A's are like the previous case.
+%      The different A's correspond to different runs, and different runs
+%      can have different numbers of time points.
+%   3. {{C1_1 C2_1 C3_1 ...} {C1_2 C2_2 C3_2 ...} ...} where Ca_b
+%      is a vector of onset times for condition a in run b.  Time starts at 0 
+%      and is coincident with the acquisition of the first volume.  This case 
+%      is compatible only with <hrfmodel> set to 'assume'.
+%   Because this function involves cross-validation across runs, there must 
+%   be at least two runs in <design>.  
 % <data> is the time-series data with dimensions X x Y x Z x time or a cell
 %   vector of elements that are each X x Y x Z x time.  XYZ can be collapsed.
 %   The dimensions of <data> should mirror that of <design>.  (For example, 
 %   <design> and <data> should have the same number of runs, the same number 
-%   of time points, etc.)  <data> should not contain any NaNs.  We automatically
-%   convert <data> to single format (if necessary).
+%   of time points, etc.  Thus, <data> should have at least two runs since
+%   <design> must have at least two runs.)  <data> should not contain any NaNs.
+%   We automatically convert <data> to single format (if necessary).
 % <stimdur> is the duration of a trial in seconds
 % <tr> is the sampling rate in seconds
 % <hrfmodel> (optional) indicates the type of model to use for the HRF:
@@ -79,6 +87,9 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %   <brainR2> (optional) is an R^2 value (percentage).  Voxels whose 
 %     cross-validation accuracy is below this value are allowed to enter 
 %     the noise pool.  Default: 0.
+%   <brainexclude> (optional) is X x Y x Z with 1s indicating voxels to 
+%     exclude when selecting the noise pool.  Special case is 0 which means 
+%     all voxels can be potentially chosen.  Default: 0.
 %   <numpcstotry> (optional) is a non-negative integer indicating the maximum
 %     number of PCs to enter into the model.  Default: 20.
 %   <pcR2cutoff> (optional) is an R^2 value (percentage).  To decide the number
@@ -147,16 +158,24 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % <pcregressors> indicates the global noise regressors that were used
 %   to denoise the data.  The format is a cell vector of elements that 
 %   are each time x regressors.  The number of regressors will be equal 
-%   to opt.numpcstotry.
+%   to opt.numpcstotry and they are in order (the first PC is the first
+%   regressor, the second PC is the second regressor, etc.).  Note that
+%   only the first <pcnum> PCs are actually used for the final model.
 % <pcR2> is X x Y x Z x (1+opt.numpcstotry) with cross-validated R^2 values for
 %   different numbers of PCs.  The first slice corresponds to 0 PCs, the
 %   second slice corresponds to 1 PC, the third slice corresponds to
 %   2 PCs, etc.
+% <pcR2final> is X x Y x Z with cross-validated R^2 values for the final
+%   model that is chosen.  Note that this is simply pcR2(:,:,:,1+pcnum).
 % <pcvoxels> is X x Y x Z with logical values indicating the voxels that
 %   were used to select the number of PCs.
 % <pcnum> is the number of PCs that were selected for the final model.
 % <pcweights> is X x Y x Z x <pcnum> x R with the estimated weights on the 
 %   PCs for each voxel and run.
+% <SNRbefore> is X x Y x Z with signal-to-noise ratios before denoising
+%   (using no global noise regressors).
+% <SNRafter> is X x Y x Z with signal-to-noise ratios after denoising
+%   (using the final number of global noise regressors).
 % <inputs> is a struct containing all inputs used in the call to this
 %   function, excluding <data>.  We additionally include a field called 
 %   'datasize' which contains the size of each element of <data>.
@@ -181,12 +200,14 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %    portion of the GLM model (the HRF and the amplitudes).
 % 3. Determine noise pool.  This is done by calculating a mean volume (the 
 %    mean across all volumes) and then determining the voxels that
-%    satisfy the following two criteria:
+%    satisfy the following criteria:
 %    (1) The voxels must have sufficient MR signal, that is, the signal
 %        intensity in the mean volume must be above a certain threshold
 %        (see opt.brainthresh).
 %    (2) The voxels must have cross-validated R^2 values that are 
 %        below a certain threshold (see opt.brainR2).
+%    (3) The voxels must not be listed in opt.brainexclude (which is an
+%        optional input that can be specified by the user).
 % 4. Determine global noise regressors.  This is done by extracting the 
 %    time-series data for the voxels in the noise pool, projecting out the
 %    polynomial nuisance functions from each time-series, normalizing each
@@ -212,7 +233,8 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % 7. Fit the final model.  We fit the final GLM model (with the HRF fixed to 
 %    that obtained in step 1 and with the number of PCs selected in step 6) 
 %    to the data.  Bootstrapping is used to estimate error bars on 
-%    amplitude estimates.
+%    amplitude estimates.  (We also fit the final model with no PCs so that
+%    we can compare the SNR before and after denoising.)
 % 8. Return the de-noised data.  We calculate the component of the data that 
 %    is due to the global noise regressors and return the original time-series 
 %    data with this component subtracted off.  Note that the other components of
@@ -248,9 +270,17 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %   were used to select the number of PC regressors.
 % - "MeanVolume.png" shows the mean volume (mean of all volumes).
 % - "NoisePool.png" shows (in white) the voxels selected for the noise pool.
+% - "NoiseExclude.png" shows (in white) voxels that were excluded by the user
+%   from entering the noise pool.  This figure is not written if opt.brainexclude is 0.
 % - "PCcrossvalidationN.png" shows cross-validated R^2 values obtained with N PCs.
 %   The range is 0% to 100%, and the colormap is nonlinearly scaled to enhance
 %   visibility.
+% - "PCcrossvalidationscaledN.png" shows cross-validated R^2 values obtained with N PCs.
+%   This is just like the previous figures except that the maximum of the color range
+%   is set to the 99th percentile of R^2 values observed across all PCs.  The point
+%   of this is to make it easier to visualize datasets where R^2 values are low.  The
+%   disadvantage is that these figures cannot be directly compared across different 
+%   datasets (since the color range may differ).
 % - "PCmask.png" shows (in white) the mask restricting the voxels that
 %   can be selected for determining the optimal number of PCs.  This figure is 
 %   not written if opt.pcR2cutoffmask is 1.
@@ -267,6 +297,15 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % - "SNRnoise.png" shows the average amplitude error (the noise).
 %   The range is 0 to the 99th percentile of the values.
 % - "SNR.png" shows the signal-to-noise ratio.  The range is 0 to 10.
+% - "SNRcomparebeforeandafter.png" shows a scatter plot of SNR values obtained
+%   with no denoising (0 PCs) against SNR values obtained with denoising (with
+%   the selected number of PCs).  The range of the plot is set to the full range
+%   of SNR values.  The green and red coloring of the dots is the same as in the
+%   "PCscatterN.png" figures.
+% - "SNRamountofdatagained.png" is exactly the same as the previous figure except
+%   that the y-axis is now converted into the equivalent amount of data gained.  
+%   For example, if SNR is boosted from 4 to 8, this is equivalent to having 
+%   obtained 300% more data than was actually obtained.
 % - "PCmap/PCmap_runN_numO.png" shows the estimated weights for the Oth PC
 %   for run N.  The range is -A to A where A is the 99th percentile of the
 %   absolute value of all weights across all runs.  The colormap proceeds
@@ -275,8 +314,23 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % Additional information:
 % - For additional details on model estimation and quantification of model
 % accuracy (R^2), please see the documentation provided in GLMestimatemodel.m.
+% - To ensure that <SNRbefore> and <SNRafter> are directly comparable, we first
+% average the estimated signal across the no-denoise and denoise cases
+% and then divide by the estimated noise from each case.  This has the 
+% consequence that <SNRafter> will not be exactly identical to <SNR>.  
+% - With regards to the onset-time specification of the experimental design,
+% this is implemented by laying down the HRF at the appropriate onset times
+% and then using cubic interpolation to obtain the predicted HRF values at the
+% times at which data are actually sampled.
 %
 % History:
+% - 2013/05/12: allow <design> to specify onset times
+% - 2013/05/12: add opt.brainexclude and associated figure
+% - 2013/05/12: add SNRbefore and SNRafter fields and associated figures
+% - 2013/05/12: add PCcrossvalidationscaledN.png figures
+% - 2013/05/12: update to indicate fractional values in design matrix are allowed.
+% - 2013/05/12: regressors that are all zero now receive a 0 weight (instead of crashing)
+% - 2013/05/12: add pcR2final as an output
 % - 2012/12/06: automatically convert data to single format
 % - 2012/12/05: fix minor bug (bad HRF estimate caused figure crash)
 % - 2012/12/03: *** Tag: Version 1.02 ***. Use faster OLS computation (less
@@ -373,6 +427,9 @@ end
 if ~isfield(opt,'brainR2') || isempty(opt.brainR2)
   opt.brainR2 = 0;
 end
+if ~isfield(opt,'brainexclude') || isempty(opt.brainexclude)
+  opt.brainexclude = 0;
+end
 if ~isfield(opt,'numpcstotry') || isempty(opt.numpcstotry)
   opt.numpcstotry = 20;
 end
@@ -462,7 +519,7 @@ meanvol = reshape(catcell(2,cellfun(@(x) squish(mean(x,dimtime),dimdata),data,'U
 thresh = prctile(meanvol(:),opt.brainthresh(1))*opt.brainthresh(2);  % threshold for non-brain voxels 
 bright = meanvol > thresh;                                           % logical indicating voxels that are bright (brain voxels)
 badxval = pcR2 < opt.brainR2;                                        % logical indicating voxels with poor cross-validation accuracy
-noisepool = bright & badxval;                                        % logical indicating voxels that satisfy both criteria
+noisepool = bright & badxval & ~opt.brainexclude;                    % logical indicating voxels that satisfy all criteria
   
 % determine global noise regressors
 fprintf('*** GLMdenoisedata: calculating global noise regressors. ***\n');
@@ -544,13 +601,29 @@ fprintf('*** GLMdenoisedata: selected number of PCs is %d. ***\n',pcnum);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% FIT FINAL MODEL AND PREPARE OUTPUT
 
-% fit final model
+% fit final model (NO DENOISING)
+opt2 = opt;
+opt2.wantpercentbold = 0;  % do not do the conversion yet.  we will do it ourselves below.
+fprintf('*** GLMdenoisedata: fitting final model (no denoising, for comparison purposes). ***\n');
+switch hrfmodel
+case {'optimize' 'assume'}
+  resultsTEMP = GLMestimatemodel(design,data,stimdur,tr,'assume',hrf,opt.numboots,opt2);
+case 'fir'
+  resultsTEMP = GLMestimatemodel(design,data,stimdur,tr,'fir',hrfknobs,opt.numboots,opt2);
+end
+
+% save some results
+signal_nodenoise = resultsTEMP.signal;
+noise_nodenoise = resultsTEMP.noise;
+clear resultsTEMP;
+
+% fit final model (WITH DENOISING)
 opt2 = opt;
 for q=1:numruns
   opt2.extraregressors{q} = cat(2,opt2.extraregressors{q},pcregressors{q}(:,1:pcnum));
 end
 opt2.wantpercentbold = 0;  % do not do the conversion yet.  we will do it ourselves below.
-fprintf('*** GLMdenoisedata: fitting final model. ***\n');
+fprintf('*** GLMdenoisedata: fitting final model (with denoising). ***\n');
 switch hrfmodel
 case {'optimize' 'assume'}
   results = GLMestimatemodel(design,data,stimdur,tr,'assume',hrf,opt.numboots,opt2);
@@ -568,6 +641,12 @@ results.pcvoxels = reshape(pcvoxels,[xyzsize 1]);
 results.pcnum = pcnum;
 clear meanvol noisepool pcregressors pcR2 pcnum;
 
+% prepare SNR comparison
+amp = (results.signal + signal_nodenoise)/2;
+results.SNRbefore = amp ./ noise_nodenoise;
+results.SNRafter = amp ./ results.noise;
+clear amp signal_nodenoise noise_nodenoise;
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% CALCULATE DENOISED DATA AND PCWEIGHTS
 
 fprintf('*** GLMdenoisedata: calculating denoised data and PC weights. ***\n');
@@ -581,7 +660,8 @@ for p=1:numruns
   numtime = size(data{p},dimtime);
 
   % calculate signal contribution
-  modelcomponent = GLMpredictresponses(results.modelmd,design{p},dimdata);  % X x Y x Z x T
+  modelcomponent = GLMpredictresponses(results.modelmd,{design{p}},tr,numtime,dimdata);
+  modelcomponent = modelcomponent{1};  % X x Y x Z x T
 
   % prepare polynomial regressors
   polymatrix = constructpolynomialmatrix(numtime,0:opt.maxpolydeg(p));
@@ -644,6 +724,9 @@ results.inputs.hrfmodel = hrfmodel;
 results.inputs.hrfknobs = hrfknobs;
 results.inputs.opt = opt;
 results.inputs.figuredir = figuredir;
+
+% prepare pcR2final
+results.pcR2final = results.pcR2(:,:,:,1+results.pcnum);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% CONVERT TO % BOLD CHANGE
 
@@ -718,6 +801,11 @@ if ~isempty(figuredir)
   % write out image showing noise pool
   imwrite(uint8(255*makeimagestack(results.noisepool,[0 1])),gray(256),[figuredir '/NoisePool.png']);
 
+  % write out image showing voxels excluded from noise pool
+  if ~isequal(opt.brainexclude,0)
+    imwrite(uint8(255*makeimagestack(opt.brainexclude,[0 1])),gray(256),[figuredir '/NoiseExclude.png']);
+  end
+
   % write out image showing voxel mask for HRF fitting
   if isequal(hrfmodel,'optimize') && ~isequal(opt.hrffitmask,1)
     imwrite(uint8(255*makeimagestack(opt.hrffitmask,[0 1])),gray(256),[figuredir '/HRFfitmask.png']);
@@ -731,14 +819,20 @@ if ~isempty(figuredir)
   % write out image showing the actual voxels used for PC selection
   imwrite(uint8(255*makeimagestack(results.pcvoxels,[0 1])),gray(256),[figuredir '/PCvoxels.png']);
 
+  % figure out an upper bound for the R^2 values
+  upperb = prctile(results.pcR2(:),99);
+
   % define a function that will write out R^2 values to an image file
   imfun = @(results,filename) ...
     imwrite(uint8(255*makeimagestack(signedarraypower(results/100,0.5),[0 1])),hot(256),filename);
+  imfunB = @(results,filename) ...
+    imwrite(uint8(255*makeimagestack(signedarraypower(results/upperb,0.5),[0 1])),hot(256),filename);
 
   % write out cross-validated R^2 for the various numbers of PCs
   for p=1:size(results.pcR2,dimdata+1)
     temp = subscript(results.pcR2,[repmat({':'},[1 dimdata]) {p}]);
     feval(imfun,temp,sprintf([figuredir '/PCcrossvalidation%02d.png'],p-1));
+    feval(imfunB,temp,sprintf([figuredir '/PCcrossvalidationscaled%02d.png'],p-1));
   end
 
   % write out overall R^2 for final model
@@ -754,6 +848,26 @@ if ~isempty(figuredir)
   imwrite(uint8(255*makeimagestack(results.signal,[0 prctile(results.signal(:),99)])),hot(256),[figuredir '/SNRsignal.png']);
   imwrite(uint8(255*makeimagestack(results.noise,[0 max(eps,prctile(results.noise(:),99))])),hot(256),[figuredir '/SNRnoise.png']);
   imwrite(uint8(255*makeimagestack(results.SNR,[0 10])),hot(256),[figuredir '/SNR.png']);
+  
+  % write out SNR comparison figures (first figure)
+  rng = [min([results.SNRbefore(:); results.SNRafter(:)]) max([results.SNRbefore(:); results.SNRafter(:)])];
+  figureprep([100 100 500 500]); hold on;
+  scattersparse(results.SNRbefore(:),results.SNRafter(:),20000,0,36,'g','.');
+  scattersparse(results.SNRbefore(pcvoxels),results.SNRafter(pcvoxels),20000,0,36,'r','.');
+  axis([rng rng]); axissquarify; axis([rng rng]);
+  xlabel('SNR (before denoising)');
+  ylabel('SNR (after denoising)');
+  figurewrite(sprintf('SNRcomparebeforeandafter'),[],[],figuredir);
+  
+  % write out SNR comparison figures (second figure)
+  datagain = ((results.SNRafter./results.SNRbefore).^2 - 1) * 100;
+  figureprep([100 100 500 500]); hold on;
+  scattersparse(results.SNRbefore(:),datagain(:),20000,0,36,'g','.');
+  scattersparse(results.SNRbefore(pcvoxels),datagain(pcvoxels),20000,0,36,'r','.');
+  ax = axis; axis([rng ax(3:4)]);
+  xlabel('SNR (before denoising)');
+  ylabel('Equivalent amount of data gained (%)');
+  figurewrite(sprintf('SNRamountofdatagained'),[],[],figuredir);
   
   % write out maps of pc weights
   thresh = prctile(abs(results.pcweights(:)),99);
