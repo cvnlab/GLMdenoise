@@ -14,6 +14,18 @@ For additional information, please visit:
   http://kendrickkay.net/GLMdenoise/
 
 History of major code changes:
+- 2013/11/18:
+    Version 1.2.
+    - The default canonical HRF has changed.  (It is now smoother/nicer than before.)
+    - Add additional input flexibility.
+    - If pcvoxels is determined to be empty (e.g. no voxels were above 0% for any number
+      of PCs), we now issue a warning (instead of crashing) and fallback to simply using 
+      the top 100 voxels to select the number of PCs.
+    - Change the colormap scaling for the PCcrossvalidationscaled*.png figures.
+    - Use fullfile to ensure compatibility with different platforms.
+    - In GLMestimatemodel.m, we now use the same default for opt.maxpolydeg that is
+      used in GLMdenoisedata.m (instead of defaulting to 2).
+    - Various small tweaks.
 - 2013/05/12:
     Version 1.1.
     - The experimental design can now be specified in terms of onset times.
