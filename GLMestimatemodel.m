@@ -211,6 +211,8 @@ function [results,cache] = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfk
 % execution halts.
 %
 % History:
+% - 2013/12/11: now, after we are done using opt.seed, we reset the random number seed 
+%               to something random (specifically, sum(100*clock)).
 % - 2013/11/18: add cache input/output; update documentation; new default for
 %               maxpolydeg (it used to always be 2); add opt.hrfthresh; 
 %               add opt.suppressoutput; some speed-ups
@@ -425,7 +427,10 @@ case 'boot'
   
   end
   if ~opt.suppressoutput, fprintf('done.\n');, end
-  
+
+  % randomize the random seed
+  setrandstate(1);
+
 case 'xval'
 
   % this is the cross-validation case
