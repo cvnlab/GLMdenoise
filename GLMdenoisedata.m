@@ -118,10 +118,10 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %     to do nothing special.  If 1, then after we are done constructing the global
 %     noise regressors, we scramble the phase spectra of these regressors (prior
 %     to entering them into the GLM).  If 2, then after we are done constructing the
-%     global noise regressors, we shuffle the assignment of global noise regressors
+%     noise regressors, we shuffle the assignment of noise regressors
 %     to the runs, ensuring that each run is assigned a new set of regressors.  Note that
 %     in this shuffling, the grouping of regressors (at the run level) is maintained.
-%     The shuffling is performed prior to entering global noise regressors into the GLM.
+%     The shuffling is performed prior to entering noise regressors into the GLM.
 %   <numboots> (optional) is a positive integer indicating the number of 
 %     bootstraps to perform for the final model.  Special case is 0 which
 %     indicates that the final model should just be fit to the complete
@@ -132,12 +132,12 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %     the signal (estimated hemodynamic responses evoked by the experiment), B 
 %     indicates whether to include the polynomial drift, C indicates whether
 %     to include any extra regressors provided by the user, D indicates 
-%     whether to include the global noise regressors, and E indicates whether
+%     whether to include the noise regressors, and E indicates whether
 %     to include the residuals of the model.  If multiple strings are provided,
 %     then separate copies of the data will be returned in the rows of 
 %     <denoiseddata>.  Default: '11101' which indicates that all components of 
 %     the data will be returned except for the component corresponding to the 
-%     estimate of the contribution of the global noise regressors.
+%     estimate of the contribution of the noise regressors.
 %   <wantpercentbold> (optional) is whether to convert the amplitude estimates
 %     in 'models', 'modelmd', and 'modelse' to percent BOLD change.  This is
 %     done as the very last step, and is accomplished by dividing by the 
@@ -169,7 +169,7 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % <meanvol> is X x Y x Z with the mean of all volumes
 % <noisepool> is X x Y x Z with logical values indicating the voxels that
 %   were selected for the noise pool.
-% <pcregressors> indicates the global noise regressors that were used
+% <pcregressors> indicates the noise regressors that were used
 %   to denoise the data.  The format is a cell vector of elements that 
 %   are each time x regressors.  The number of regressors will be equal 
 %   to opt.numpcstotry and they are in order (the first PC is the first
@@ -187,16 +187,16 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % <pcweights> is X x Y x Z x <pcnum> x R with the estimated weights on the 
 %   PCs for each voxel and run.
 % <SNRbefore> is X x Y x Z with signal-to-noise ratios before denoising
-%   (using no global noise regressors).
+%   (using no noise regressors).
 % <SNRafter> is X x Y x Z with signal-to-noise ratios after denoising
-%   (using the final number of global noise regressors).
+%   (using the final number of noise regressors).
 % <inputs> is a struct containing all inputs used in the call to this
 %   function, excluding <data>.  We additionally include a field called 
 %   'datasize' which contains the size of each element of <data>.
 % 
 % Also return <denoiseddata>, which is just like <data> except that the 
-% component of the data that is estimated to be due to global noise is
-% subtracted off.  This may be useful in situations where one wishes to
+% component of the data that is estimated to be due to the noise regressors
+% is subtracted off.  This may be useful in situations where one wishes to
 % treat the denoising as a pre-processing step prior to other analyses 
 % of the time-series data.  Further customization of the contents of
 % <denoiseddata> is controlled by opt.denoisespec.  If you do not need
@@ -224,12 +224,12 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %        below a certain threshold (see opt.brainR2).
 %    (3) The voxels must not be listed in opt.brainexclude (which is an
 %        optional input that can be specified by the user).
-% 4. Determine global noise regressors.  This is done by extracting the 
+% 4. Determine noise regressors.  This is done by extracting the 
 %    time-series data for the voxels in the noise pool, projecting out the
 %    polynomial nuisance functions from each time-series, normalizing each
 %    time-series to be unit length, and then performing PCA.  The top N
 %    PCs from each run (where N is equal to opt.numpcstotry) are selected
-%    as global noise regressors.  Each regressor is scaled to have a standard
+%    as noise regressors.  Each regressor is scaled to have a standard
 %    deviation of 1; this makes it easier to interpret the weights estimated
 %    for the regressors.
 % 5. Evaluate different numbers of PCs using cross-validation.  We refit
@@ -252,7 +252,7 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %    amplitude estimates.  (We also fit the final model with no PCs so that
 %    we can compare the SNR before and after denoising.)
 % 8. Return the de-noised data.  We calculate the component of the data that 
-%    is due to the global noise regressors and return the original time-series 
+%    is due to the noise regressors and return the original time-series 
 %    data with this component subtracted off.  Note that the other components of
 %    the model (the hemodynamic responses evoked by the experiment, 
 %    the polynomial drift, any extra regressors provided by the user, 
@@ -260,6 +260,14 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %    please see the input opt.denoisespec.
 %
 % Figures:
+% - "CheckData/CheckMeanStd_runN.png" shows the mean and standard deviation across voxels
+%   of each volume in run N.  This allows one to quickly check the sanity of the data, 
+%   e.g., with regards to whether weird transient artifacts exist, whether initial 
+%   magnetization effects are present in the data (the first few volumes should have
+%   been dropped to avoid these effects), whether there are non-finite values in the 
+%   data (there should not be any), and with regards to the units of the data 
+%   (the data should consist primarily of positive values and in particular, should
+%   not be mean-subtracted).
 % - "HRF.png" shows the initial assumed HRF (provided by <hrfknobs>) and the
 %   final estimated HRF (as calculated in step 1).  If <hrfmodel> is 'assume',
 %   the two plots will be identical.  If <hrfmodel> is 'fir', this figure
@@ -340,6 +348,10 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % times at which data are actually sampled.
 %
 % History:
+% - 2013/12/11: rename "global noise regressors" to "noise regressors" in the
+%               documentation; perform a quick error-check for non-finite values
+%               in the first run of data; omit saving of some of the figures if 
+%               opt.numboots is 0; add some new sanity-check figures; fix minor bug
 % - 2013/11/18: update documentation; add opt.pccontrolmode; add opt.hrfthresh;
 %               use fullfile for compatibility with different platforms;
 %               if pcvoxels is empty, we now fallback to using the top 100 voxels;
@@ -404,6 +416,11 @@ for p=1:length(data)
     fprintf('*** GLMdenoisedata: converting data in run %d to single format (consider doing this before the function call to reduce memory usage). ***\n',p);
     data{p} = single(data{p});
   end
+end
+
+% do some error checking
+if any(flatten(~isfinite(data{1})))
+  fprintf('*** GLMdenoisedata: WARNING: we checked the first run and found some non-finite values (e.g. NaN, Inf). unexpected results may occur due to non-finite values. please fix and re-run GLMdenoisedata. ***\n');
 end
 
 % calc
@@ -502,6 +519,32 @@ if ~isempty(figuredir)
   figuredir = absolutepath(figuredir);
 end
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% PRE-FLIGHT SANITY CHECK
+
+if ~isempty(figuredir)
+  fprintf('*** GLMdenoisedata: generating sanity-check figures. ***\n');
+  
+  % make figure showing mean and std dev of each volume over time
+  for p=1:length(data)
+  
+    % calc
+    meants = mean(squish(data{p},dimdata),1);
+    stdts = std(squish(data{p},dimdata),[],1);
+
+    % make figure
+    figureprep([100 100 1000 300]); hold on;
+    errorbar2(1:length(meants),meants,stdts,'v','r-');
+    plot(1:length(meants),meants,'r-');
+    ax = axis; axis([1-10 length(meants)+10 ax(3:4)]);
+    xlabel('TR');
+    ylabel('Signal (raw units)');
+    title(sprintf('Run %d (mean + std dev of each volume)',p));
+    figurewrite(fullfile('CheckData',sprintf('CheckMeanStd_run%02d',p)),[],[],figuredir);
+
+  end
+
+end
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% DETERMINE HRF
 
 % if 'optimize', perform full-fit to determine HRF
@@ -537,7 +580,7 @@ end
 pcR2 = xvalfit.R2;
 clear xvalfit;
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% DETERMINE NOISE POOL AND CALCULATE GLOBAL NOISE REGRESSORS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% DETERMINE NOISE POOL AND CALCULATE NOISE REGRESSORS
 
 % determine noise pool
 fprintf('*** GLMdenoisedata: determining noise pool. ***\n');
@@ -549,8 +592,8 @@ bright = meanvol > thresh;                                           % logical i
 badxval = pcR2 < opt.brainR2;                                        % logical indicating voxels with poor cross-validation accuracy
 noisepool = bright & badxval & ~opt.brainexclude;                    % logical indicating voxels that satisfy all criteria
   
-% determine global noise regressors
-fprintf('*** GLMdenoisedata: calculating global noise regressors. ***\n');
+% determine noise regressors
+fprintf('*** GLMdenoisedata: calculating noise regressors. ***\n');
 pcregressors = {};
 for p=1:length(data)
 
@@ -572,7 +615,7 @@ for p=1:length(data)
 end
 clear temp len u s v;
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% PERTURB THE GLOBAL NOISE REGRESSORS (IF REQUESTED)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% PERTURB THE NOISE REGRESSORS (IF REQUESTED)
 
 switch opt.pccontrolmode
 
@@ -624,9 +667,9 @@ case 2
 
 end
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% ADD GLOBAL NOISE REGRESSORS INTO MODEL AND CHOOSE OPTIMAL NUMBER
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% ADD NOISE REGRESSORS INTO MODEL AND CHOOSE OPTIMAL NUMBER
 
-% perform cross-validation with increasing number of global noise regressors
+% perform cross-validation with increasing number of noise regressors
 for p=1:opt.numpcstotry
   fprintf('*** GLMdenoisedata: performing cross-validation with %d PCs. ***\n',p);
   opt2 = opt;
@@ -769,14 +812,14 @@ for p=1:numruns
   exmatrix = opt.extraregressors{p};
   numex = size(exmatrix,2);
 
-  % prepare global noise regressors
+  % prepare noise regressors
   pcmatrix = results.pcregressors{p}(:,1:results.pcnum);
   numpc = size(pcmatrix,2);
 
   % estimate weights
   h = olsmatrix2(cat(2,polymatrix,exmatrix,pcmatrix))*squish(data{p} - modelcomponent,dimdata)';  % parameters x voxels
 
-  % record weights on global noise regressors
+  % record weights on noise regressors
   results.pcweights(:,:,p) = h(numpoly+numex+(1:numpc),:)';
   
   % construct time-series
@@ -934,7 +977,7 @@ if ~isempty(figuredir)
   % figure out bounds for the R^2 values
   bounds = prctile(results.pcR2(:),[1 99]);
   if bounds(1)==bounds(2)  % a hack to avoid errors in normalization
-    bounds(2) = bounds(1) + eps;
+    bounds(2) = bounds(1) + 1;
   end
 
   % define a function that will write out R^2 values to an image file
@@ -961,31 +1004,37 @@ if ~isempty(figuredir)
   
   % write out signal, noise, and SNR
   imwrite(uint8(255*makeimagestack(results.signal,[0 prctile(results.signal(:),99)])),hot(256),fullfile(figuredir,'SNRsignal.png'));
-  imwrite(uint8(255*makeimagestack(results.noise,[0 max(eps,prctile(results.noise(:),99))])),hot(256),fullfile(figuredir,'SNRnoise.png'));
-  imwrite(uint8(255*makeimagestack(results.SNR,[0 10])),hot(256),fullfile(figuredir,'SNR.png'));
+  if opt.numboots ~= 0
+    imwrite(uint8(255*makeimagestack(results.noise,[0 max(eps,prctile(results.noise(:),99))])),hot(256),fullfile(figuredir,'SNRnoise.png'));
+    imwrite(uint8(255*makeimagestack(results.SNR,[0 10])),hot(256),fullfile(figuredir,'SNR.png'));
+  end
   
   % write out SNR comparison figures (first figure)
-  rng = [min([results.SNRbefore(:); results.SNRafter(:)]) max([results.SNRbefore(:); results.SNRafter(:)])];
-  if ~all(isfinite(rng))  % hack to deal with cases of no noise estimate
-    rng = [0 1];
+  if opt.numboots ~= 0
+    rng = [min([results.SNRbefore(:); results.SNRafter(:)]) max([results.SNRbefore(:); results.SNRafter(:)])];
+    if ~all(isfinite(rng))  % hack to deal with cases of no noise estimate
+      rng = [0 1];
+    end
+    figureprep([100 100 500 500]); hold on;
+    scattersparse(results.SNRbefore(:),results.SNRafter(:),20000,0,36,'g','.');
+    scattersparse(results.SNRbefore(pcvoxels),results.SNRafter(pcvoxels),20000,0,36,'r','.');
+    axis([rng rng]); axissquarify; axis([rng rng]);
+    xlabel('SNR (before denoising)');
+    ylabel('SNR (after denoising)');
+    figurewrite(sprintf('SNRcomparebeforeandafter'),[],[],figuredir);
   end
-  figureprep([100 100 500 500]); hold on;
-  scattersparse(results.SNRbefore(:),results.SNRafter(:),20000,0,36,'g','.');
-  scattersparse(results.SNRbefore(pcvoxels),results.SNRafter(pcvoxels),20000,0,36,'r','.');
-  axis([rng rng]); axissquarify; axis([rng rng]);
-  xlabel('SNR (before denoising)');
-  ylabel('SNR (after denoising)');
-  figurewrite(sprintf('SNRcomparebeforeandafter'),[],[],figuredir);
   
   % write out SNR comparison figures (second figure)
-  datagain = ((results.SNRafter./results.SNRbefore).^2 - 1) * 100;
-  figureprep([100 100 500 500]); hold on;
-  scattersparse(results.SNRbefore(:),datagain(:),20000,0,36,'g','.');
-  scattersparse(results.SNRbefore(pcvoxels),datagain(pcvoxels),20000,0,36,'r','.');
-  ax = axis; axis([rng ax(3:4)]);
-  xlabel('SNR (before denoising)');
-  ylabel('Equivalent amount of data gained (%)');
-  figurewrite(sprintf('SNRamountofdatagained'),[],[],figuredir);
+  if opt.numboots ~= 0
+    datagain = ((results.SNRafter./results.SNRbefore).^2 - 1) * 100;
+    figureprep([100 100 500 500]); hold on;
+    scattersparse(results.SNRbefore(:),datagain(:),20000,0,36,'g','.');
+    scattersparse(results.SNRbefore(pcvoxels),datagain(pcvoxels),20000,0,36,'r','.');
+    ax = axis; axis([rng ax(3:4)]);
+    xlabel('SNR (before denoising)');
+    ylabel('Equivalent amount of data gained (%)');
+    figurewrite(sprintf('SNRamountofdatagained'),[],[],figuredir);
+  end
   
   % write out maps of pc weights
   thresh = prctile(abs(results.pcweights(:)),99);
