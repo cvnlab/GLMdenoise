@@ -13,6 +13,11 @@ downloaded) and will run the toolbox on the dataset.
 For additional information, please visit:
   http://kendrickkay.net/GLMdenoise/
 
+If you use GLMdenoise in your research, please cite the following paper:
+  Kay KN, Rokem A, Winawer J, Dougherty RF and Wandell BA (2013) 
+    GLMdenoise: a fast, automated technique for denoising task-based fMRI data.
+    Front. Neurosci. 7:247. doi: 10.3389/fnins.2013.00247
+
 History of major code changes:
 - 2013/11/18:
     Version 1.2.
