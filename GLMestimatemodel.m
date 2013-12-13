@@ -841,7 +841,9 @@ case 'optimize'
       % estimate the HRF
       previoushrf = currenthrf;
       datasubset = cellfun(@(x) x(:,hrffitvoxels),data2,'UniformOutput',0);
+        prev = warning('query'); warning off;
       currenthrf = olsmatrix2(squish(cat(1,design2{:}),2)) * vflatten(cat(1,datasubset{:}));
+        warning(prev);
 
       % if HRF is all zeros (this can happen when the data are all zeros), get out prematurely
       if all(currenthrf==0)
