@@ -1,3 +1,5 @@
+# GLMdenoise
+
 GLMdenoise is a MATLAB toolbox for analyzing and denoising task-based fMRI data.
 It is developed by Kendrick Kay (kendrick@post.harvard.edu).
 
@@ -12,6 +14,11 @@ downloaded) and will run the toolbox on the dataset.
 
 For additional information, please visit:
   http://kendrickkay.net/GLMdenoise/
+
+Terms of use: This content is licensed under a Creative Commons Attribution 3.0 
+Unported License (http://creativecommons.org/licenses/by/3.0/us/). You are free 
+to share and adapt the content as you please, under the condition that you cite 
+the appropriate manuscript (see below).
 
 If you use GLMdenoise in your research, please cite the following paper:
   Kay KN, Rokem A, Winawer J, Dougherty RF and Wandell BA (2013) 
@@ -43,6 +50,8 @@ History of major code changes:
     - All-zero regressors (e.g. encountered via bootstrapping) are now assigned zero weight.
 - 2012/12/03 - Version 1.02. Various speed-ups and minor bug fixes.
 - 2012/11/24 - Version 1.0.
+
+## CONTENTS
 
 Contents:
 - example*.m - Example scripts
