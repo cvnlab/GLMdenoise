@@ -148,6 +148,17 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %     HRF and the initial HRF is less than <hrfthresh>, we decide to just use
 %     the initial HRF.  Set <hrfthresh> to -Inf if you never want to reject
 %     the estimated HRF.  Default: 50.
+%   <noisepooldirect> (optional) is {A B} where A is X x Y x Z with 1s indicating the 
+%     voxels to use as the noise pool and B is a non-negative integer indicating the 
+%     number of PCs to use.  (B must be less than or equal to <numpcstotry>.)
+%     If <noisepooldirect> is supplied, this causes much of the standard GLMdenoise 
+%     procedure to be bypassed.  For example, cross-validation is no longer necessary 
+%     and therefore no longer performed.  Thus, one benefit of using <noisepooldirect>
+%     is that you can apply GLMdenoisedata.m to a single run of data.  Note that if 
+%     <noisepooldirect> is supplied, various inputs no longer have any effect 
+%     (e.g., <brainthresh>, <brainR2>, <brainexclude>, <pcR2cutoff>, <pcR2cutoffmask>, 
+%     and <pcstop>) and various outputs and figures are omittted.  Default is [] which 
+%     means to perform the usual GLMdenoise procedure.
 % <figuredir> (optional) is a directory to which to write figures.  (If the
 %   directory does not exist, we create it; if the directory already exists,
 %   we delete its contents so we can start afresh.)  If [], no figures are
@@ -348,6 +359,8 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % times at which data are actually sampled.
 %
 % History:
+% - 2013/07/14: add <noisepooldirect> input; fix some file- and directory-related
+%               issues, making things more platform independent
 % - 2013/12/11: rename "global noise regressors" to "noise regressors" in the
 %               documentation; perform a quick error-check for non-finite values
 %               in the first run of data; omit saving of some of the figures if 
@@ -496,6 +509,9 @@ end
 if ~isfield(opt,'hrfthresh') || isempty(opt.hrfthresh)
   opt.hrfthresh = 50;
 end
+if ~isfield(opt,'noisepooldirect') || isempty(opt.noisepooldirect)
+  opt.noisepooldirect = [];
+end
 if ~isequal(hrfmodel,'fir')
   hrfknobs = normalizemax(hrfknobs);
 end
@@ -516,8 +532,13 @@ if ~isempty(figuredir)
   end
   assert(mkdir(figuredir));
   assert(mkdir(fullfile(figuredir,'PCmap')));
+  assert(mkdir(fullfile(figuredir,'CheckData')));
   figuredir = absolutepath(figuredir);
 end
+
+% whether to bypass a lot of the usual GLMdenoise routine
+% (since the noise pool and number of PCs are already supplied by the user)
+wantbypass = ~isempty(opt.noisepooldirect);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% PRE-FLIGHT SANITY CHECK
 
@@ -539,7 +560,7 @@ if ~isempty(figuredir)
     xlabel('TR');
     ylabel('Signal (raw units)');
     title(sprintf('Run %d (mean + std dev of each volume)',p));
-    figurewrite(fullfile('CheckData',sprintf('CheckMeanStd_run%02d',p)),[],[],figuredir);
+    figurewrite(sprintf('CheckMeanStd_run%02d',p),[],[],fullfile(figuredir,'CheckData'));
 
   end
 
@@ -569,28 +590,43 @@ end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% CALCULATE CROSS-VALIDATED R^2 VALUES
 
-% perform cross-validation to determine R^2 values
-fprintf('*** GLMdenoisedata: performing cross-validation to determine R^2 values. ***\n');
-switch hrfmodel
-case {'optimize' 'assume'}
-  xvalfit = GLMestimatemodel(design,data,stimdur,tr,'assume',hrf,-1,opt,[],1);
-case 'fir'
-  xvalfit = GLMestimatemodel(design,data,stimdur,tr,'fir',hrfknobs,-1,opt,[],1);
+if ~wantbypass
+
+  % perform cross-validation to determine R^2 values
+  fprintf('*** GLMdenoisedata: performing cross-validation to determine R^2 values. ***\n');
+  switch hrfmodel
+  case {'optimize' 'assume'}
+    xvalfit = GLMestimatemodel(design,data,stimdur,tr,'assume',hrf,-1,opt,[],1);
+  case 'fir'
+    xvalfit = GLMestimatemodel(design,data,stimdur,tr,'fir',hrfknobs,-1,opt,[],1);
+  end
+  pcR2 = xvalfit.R2;
+  clear xvalfit;
+
 end
-pcR2 = xvalfit.R2;
-clear xvalfit;
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% DETERMINE NOISE POOL AND CALCULATE NOISE REGRESSORS
 
-% determine noise pool
-fprintf('*** GLMdenoisedata: determining noise pool. ***\n');
+% calculate mean volume
 volcnt = cellfun(@(x) size(x,dimtime),data);
 meanvol = reshape(catcell(2,cellfun(@(x) squish(mean(x,dimtime),dimdata),data,'UniformOutput',0)) ...
                   * (volcnt' / sum(volcnt)),[xyzsize 1]);
-thresh = prctile(meanvol(:),opt.brainthresh(1))*opt.brainthresh(2);  % threshold for non-brain voxels 
-bright = meanvol > thresh;                                           % logical indicating voxels that are bright (brain voxels)
-badxval = pcR2 < opt.brainR2;                                        % logical indicating voxels with poor cross-validation accuracy
-noisepool = bright & badxval & ~opt.brainexclude;                    % logical indicating voxels that satisfy all criteria
+
+if ~wantbypass
+
+  % determine noise pool
+  fprintf('*** GLMdenoisedata: determining noise pool. ***\n');
+  thresh = prctile(meanvol(:),opt.brainthresh(1))*opt.brainthresh(2);  % threshold for non-brain voxels 
+  bright = meanvol > thresh;                                           % logical indicating voxels that are bright (brain voxels)
+  badxval = pcR2 < opt.brainR2;                                        % logical indicating voxels with poor cross-validation accuracy
+  noisepool = bright & badxval & ~opt.brainexclude;                    % logical indicating voxels that satisfy all criteria
+
+else
+
+  % the noise pool is specified by the user
+  noisepool = opt.noisepooldirect{1};
+
+end
   
 % determine noise regressors
 fprintf('*** GLMdenoisedata: calculating noise regressors. ***\n');
@@ -669,73 +705,83 @@ end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% ADD NOISE REGRESSORS INTO MODEL AND CHOOSE OPTIMAL NUMBER
 
-% perform cross-validation with increasing number of noise regressors
-for p=1:opt.numpcstotry
-  fprintf('*** GLMdenoisedata: performing cross-validation with %d PCs. ***\n',p);
-  opt2 = opt;
-  for q=1:numruns
-    opt2.extraregressors{q} = cat(2,opt2.extraregressors{q},pcregressors{q}(:,1:p));
-  end
-  opt2.wantpercentbold = 0;  % no need to do this, so optimize for speed
-  switch hrfmodel
-  case {'optimize' 'assume'}
-    xvalfit = GLMestimatemodel(design,data,stimdur,tr,'assume',hrf,-1,opt2,[],1);
-  case 'fir'
-    xvalfit = GLMestimatemodel(design,data,stimdur,tr,'fir',hrfknobs,-1,opt2,[],1);
-  end
-  pcR2 = cat(dimdata+1,pcR2,xvalfit.R2);
-end
-clear xvalfit;
+if ~wantbypass
 
-% prepare to select optimal number of PCs
-temp = squish(pcR2,dimdata);  % voxels x 1+pcs
-pcvoxels = any(temp > opt.pcR2cutoff,2) & squish(opt.pcR2cutoffmask,dimdata);  % if pcR2cutoffmask is 1, this still works
-if ~any(pcvoxels)
-  warning(['No voxels passed the threshold for the selection of the number of PCs. ' ...
-           'We fallback to simply using the top 100 voxels (i.e. compute each voxel''s maximum ' ...
-           'cross-validation accuracy under any number of PCs and then choose the top 100 voxels.']);
-  if isequal(opt.pcR2cutoffmask,1)
-    ix = 1:size(temp,1);
-  else
-    ix = find(squish(opt.pcR2cutoffmask,dimdata));
-  end
-  pcvoxels = logical(zeros(size(temp,1),1));
-  temp2 = max(temp(ix,:),[],2);  % max cross-validation for each voxel (within mask)
-  [d,ix2] = sort(temp2,'descend');
-  pcvoxels(ix(ix2(1:min(100,length(ix2))))) = 1;
-end
-xvaltrend = median(temp(pcvoxels,:),1);
-
-% choose number of PCs
-chosen = 0;  % this is the fall-back
-if opt.pcstop <= 0
-  chosen = -opt.pcstop;  % in this case, the user decides
-else
-  curve = xvaltrend - xvaltrend(1);  % this is the performance curve that starts at 0 (corresponding to 0 PCs)
-  mx = max(curve);                   % store the maximum of the curve
-  best = -Inf;                       % initialize (this will hold the best performance observed thus far)
-  for p=0:opt.numpcstotry
-  
-    % if better than best so far
-    if curve(1+p) > best
-    
-      % record this number of PCs as the best
-      chosen = p;
-      best = curve(1+p);
-      
-      % if we are within opt.pcstop of the max, then we stop.
-      if best*opt.pcstop >= mx
-        break;
-      end
-      
+  % perform cross-validation with increasing number of noise regressors
+  for p=1:opt.numpcstotry
+    fprintf('*** GLMdenoisedata: performing cross-validation with %d PCs. ***\n',p);
+    opt2 = opt;
+    for q=1:numruns
+      opt2.extraregressors{q} = cat(2,opt2.extraregressors{q},pcregressors{q}(:,1:p));
     end
-  
+    opt2.wantpercentbold = 0;  % no need to do this, so optimize for speed
+    switch hrfmodel
+    case {'optimize' 'assume'}
+      xvalfit = GLMestimatemodel(design,data,stimdur,tr,'assume',hrf,-1,opt2,[],1);
+    case 'fir'
+      xvalfit = GLMestimatemodel(design,data,stimdur,tr,'fir',hrfknobs,-1,opt2,[],1);
+    end
+    pcR2 = cat(dimdata+1,pcR2,xvalfit.R2);
   end
-end
+  clear xvalfit;
 
-% record the number of PCs
-pcnum = chosen;
-fprintf('*** GLMdenoisedata: selected number of PCs is %d. ***\n',pcnum);
+  % prepare to select optimal number of PCs
+  temp = squish(pcR2,dimdata);  % voxels x 1+pcs
+  pcvoxels = any(temp > opt.pcR2cutoff,2) & squish(opt.pcR2cutoffmask,dimdata);  % if pcR2cutoffmask is 1, this still works
+  if ~any(pcvoxels)
+    warning(['No voxels passed the threshold for the selection of the number of PCs. ' ...
+             'We fallback to simply using the top 100 voxels (i.e. compute each voxel''s maximum ' ...
+             'cross-validation accuracy under any number of PCs and then choose the top 100 voxels.']);
+    if isequal(opt.pcR2cutoffmask,1)
+      ix = 1:size(temp,1);
+    else
+      ix = find(squish(opt.pcR2cutoffmask,dimdata));
+    end
+    pcvoxels = logical(zeros(size(temp,1),1));
+    temp2 = max(temp(ix,:),[],2);  % max cross-validation for each voxel (within mask)
+    [d,ix2] = sort(temp2,'descend');
+    pcvoxels(ix(ix2(1:min(100,length(ix2))))) = 1;
+  end
+  xvaltrend = median(temp(pcvoxels,:),1);
+
+  % choose number of PCs
+  chosen = 0;  % this is the fall-back
+  if opt.pcstop <= 0
+    chosen = -opt.pcstop;  % in this case, the user decides
+  else
+    curve = xvaltrend - xvaltrend(1);  % this is the performance curve that starts at 0 (corresponding to 0 PCs)
+    mx = max(curve);                   % store the maximum of the curve
+    best = -Inf;                       % initialize (this will hold the best performance observed thus far)
+    for p=0:opt.numpcstotry
+  
+      % if better than best so far
+      if curve(1+p) > best
+    
+        % record this number of PCs as the best
+        chosen = p;
+        best = curve(1+p);
+      
+        % if we are within opt.pcstop of the max, then we stop.
+        if best*opt.pcstop >= mx
+          break;
+        end
+      
+      end
+  
+    end
+  end
+
+  % record the number of PCs
+  pcnum = chosen;
+  fprintf('*** GLMdenoisedata: selected number of PCs is %d. ***\n',pcnum);
+
+else
+
+  % the number of PCs is specified by the user
+  pcnum = opt.noisepooldirect{2};
+  fprintf('*** GLMdenoisedata: user-specified number of PCs is %d. ***\n',pcnum);
+  
+end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% FIT FINAL MODEL AND PREPARE OUTPUT
 
@@ -774,8 +820,10 @@ results.hrffitvoxels = hrffitvoxels;  % note that this overrides the existing en
 results.meanvol = meanvol;
 results.noisepool = noisepool;
 results.pcregressors = pcregressors;
-results.pcR2 = pcR2;
-results.pcvoxels = reshape(pcvoxels,[xyzsize 1]);
+if ~wantbypass
+  results.pcR2 = pcR2;
+  results.pcvoxels = reshape(pcvoxels,[xyzsize 1]);
+end
 results.pcnum = pcnum;
 clear meanvol noisepool pcregressors pcR2 pcnum;
 
@@ -868,8 +916,10 @@ results.inputs.hrfknobs = hrfknobs;
 results.inputs.opt = opt;
 results.inputs.figuredir = figuredir;
 
-% prepare pcR2final
-results.pcR2final = subscript(results.pcR2,[repmat({':'},[1 dimdata]) {1+results.pcnum}]);
+if ~wantbypass
+  % prepare pcR2final
+  results.pcR2final = subscript(results.pcR2,[repmat({':'},[1 dimdata]) {1+results.pcnum}]);
+end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% CONVERT TO % BOLD CHANGE
 
@@ -924,30 +974,34 @@ if ~isempty(figuredir)
     imwrite(uint8(255*makeimagestack(results.hrffitvoxels,[0 1])),gray(256),fullfile(figuredir,'HRFfitvoxels.png'));
   end
 
-  % make figure illustrating selection of number of PCs
-  figureprep([100 100 400 400]); hold on;
-  plot(0:opt.numpcstotry,xvaltrend,'r.-');
-  set(scatter(results.pcnum,xvaltrend(1+results.pcnum),100,'ro'),'LineWidth',2);
-  set(gca,'XTick',0:opt.numpcstotry);
-  xlabel('Number of PCs');
-  ylabel('Cross-validated R^2 (median across voxels)');
-  title(sprintf('Selected PC number = %d',results.pcnum));
-  figurewrite('PCselection',[],[],figuredir);
+  if ~wantbypass
+
+    % make figure illustrating selection of number of PCs
+    figureprep([100 100 400 400]); hold on;
+    plot(0:opt.numpcstotry,xvaltrend,'r.-');
+    set(scatter(results.pcnum,xvaltrend(1+results.pcnum),100,'ro'),'LineWidth',2);
+    set(gca,'XTick',0:opt.numpcstotry);
+    xlabel('Number of PCs');
+    ylabel('Cross-validated R^2 (median across voxels)');
+    title(sprintf('Selected PC number = %d',results.pcnum));
+    figurewrite('PCselection',[],[],figuredir);
   
-  % make figure showing scatter plots of cross-validated R^2
-  rng = [min(results.pcR2(:)) max(results.pcR2(:))];
-  for p=1:opt.numpcstotry
-    temp = squish(results.pcR2,dimdata);  % voxels x 1+pcs
-    figureprep([100 100 500 500]); hold on;
-    scattersparse(temp(:,1),temp(:,1+p),20000,0,36,'g','.');
-    scattersparse(temp(pcvoxels,1),temp(pcvoxels,1+p),20000,0,36,'r','.');
-    axis([rng rng]); axissquarify; axis([rng rng]); 
-    straightline(0,'h','y-');
-    straightline(0,'v','y-');
-    xlabel('Cross-validated R^2 (0 PCs)');
-    ylabel(sprintf('Cross-validated R^2 (%d PCs)',p));
-    title(sprintf('Number of PCs = %d',p));
-    figurewrite(sprintf('PCscatter%02d',p),[],[],figuredir);
+    % make figure showing scatter plots of cross-validated R^2
+    rng = [min(results.pcR2(:)) max(results.pcR2(:))];
+    for p=1:opt.numpcstotry
+      temp = squish(results.pcR2,dimdata);  % voxels x 1+pcs
+      figureprep([100 100 500 500]); hold on;
+      scattersparse(temp(:,1),temp(:,1+p),20000,0,36,'g','.');
+      scattersparse(temp(pcvoxels,1),temp(pcvoxels,1+p),20000,0,36,'r','.');
+      axis([rng rng]); axissquarify; axis([rng rng]); 
+      straightline(0,'h','y-');
+      straightline(0,'v','y-');
+      xlabel('Cross-validated R^2 (0 PCs)');
+      ylabel(sprintf('Cross-validated R^2 (%d PCs)',p));
+      title(sprintf('Number of PCs = %d',p));
+      figurewrite(sprintf('PCscatter%02d',p),[],[],figuredir);
+    end
+
   end
 
   % write out image showing mean volume (of first run)
@@ -966,40 +1020,46 @@ if ~isempty(figuredir)
     imwrite(uint8(255*makeimagestack(opt.hrffitmask,[0 1])),gray(256),fullfile(figuredir,'HRFfitmask.png'));
   end
 
-  % write out image showing voxel mask for PC selection
-  if ~isequal(opt.pcR2cutoffmask,1)
-    imwrite(uint8(255*makeimagestack(opt.pcR2cutoffmask,[0 1])),gray(256),fullfile(figuredir,'PCmask.png'));
-  end
-  
-  % write out image showing the actual voxels used for PC selection
-  imwrite(uint8(255*makeimagestack(results.pcvoxels,[0 1])),gray(256),fullfile(figuredir,'PCvoxels.png'));
-
-  % figure out bounds for the R^2 values
-  bounds = prctile(results.pcR2(:),[1 99]);
-  if bounds(1)==bounds(2)  % a hack to avoid errors in normalization
-    bounds(2) = bounds(1) + 1;
-  end
-
   % define a function that will write out R^2 values to an image file
   imfun = @(results,filename) ...
     imwrite(uint8(255*makeimagestack(signedarraypower(results/100,0.5),[0 1])),hot(256),filename);
-  imfunB = @(results,filename) ...
-    imwrite(uint8(255*makeimagestack(signedarraypower(normalizerange(results,0,1,bounds(1),bounds(2)),0.5),[0 1])),hot(256),filename);
 
-  % write out cross-validated R^2 for the various numbers of PCs
-  for p=1:size(results.pcR2,dimdata+1)
-    temp = subscript(results.pcR2,[repmat({':'},[1 dimdata]) {p}]);
-    feval(imfun,temp,sprintf(fullfile(figuredir,'PCcrossvalidation%02d.png'),p-1));
-    feval(imfunB,temp,sprintf(fullfile(figuredir,'PCcrossvalidationscaled%02d.png'),p-1));
+  if ~wantbypass
+
+    % write out image showing voxel mask for PC selection
+    if ~isequal(opt.pcR2cutoffmask,1)
+      imwrite(uint8(255*makeimagestack(opt.pcR2cutoffmask,[0 1])),gray(256),fullfile(figuredir,'PCmask.png'));
+    end
+  
+    % write out image showing the actual voxels used for PC selection
+    imwrite(uint8(255*makeimagestack(results.pcvoxels,[0 1])),gray(256),fullfile(figuredir,'PCvoxels.png'));
+
+    % figure out bounds for the R^2 values
+    bounds = prctile(results.pcR2(:),[1 99]);
+    if bounds(1)==bounds(2)  % a hack to avoid errors in normalization
+      bounds(2) = bounds(1) + 1;
+    end
+
+    % define another R^2 image-writing function
+    imfunB = @(results,filename) ...
+      imwrite(uint8(255*makeimagestack(signedarraypower(normalizerange(results,0,1,bounds(1),bounds(2)),0.5),[0 1])),hot(256),filename);
+
+    % write out cross-validated R^2 for the various numbers of PCs
+    for p=1:size(results.pcR2,dimdata+1)
+      temp = subscript(results.pcR2,[repmat({':'},[1 dimdata]) {p}]);
+      feval(imfun,temp,fullfile(figuredir,sprintf('PCcrossvalidation%02d.png',p-1)));
+      feval(imfunB,temp,fullfile(figuredir,sprintf('PCcrossvalidationscaled%02d.png',p-1)));
+    end
+
   end
 
   % write out overall R^2 for final model
-  feval(imfun,results.R2,sprintf(fullfile(figuredir,'FinalModel.png')));
+  feval(imfun,results.R2,fullfile(figuredir,sprintf('FinalModel.png')));
 
   % write out R^2 separated by runs for final model
   for p=1:size(results.R2run,dimdata+1)
     temp = subscript(results.R2run,[repmat({':'},[1 dimdata]) {p}]);
-    feval(imfun,temp,sprintf(fullfile(figuredir,'FinalModel_run%02d.png'),p));
+    feval(imfun,temp,fullfile(figuredir,sprintf('FinalModel_run%02d.png',p)));
   end
   
   % write out signal, noise, and SNR
@@ -1017,7 +1077,9 @@ if ~isempty(figuredir)
     end
     figureprep([100 100 500 500]); hold on;
     scattersparse(results.SNRbefore(:),results.SNRafter(:),20000,0,36,'g','.');
-    scattersparse(results.SNRbefore(pcvoxels),results.SNRafter(pcvoxels),20000,0,36,'r','.');
+    if ~wantbypass
+      scattersparse(results.SNRbefore(pcvoxels),results.SNRafter(pcvoxels),20000,0,36,'r','.');
+    end
     axis([rng rng]); axissquarify; axis([rng rng]);
     xlabel('SNR (before denoising)');
     ylabel('SNR (after denoising)');
@@ -1029,7 +1091,9 @@ if ~isempty(figuredir)
     datagain = ((results.SNRafter./results.SNRbefore).^2 - 1) * 100;
     figureprep([100 100 500 500]); hold on;
     scattersparse(results.SNRbefore(:),datagain(:),20000,0,36,'g','.');
-    scattersparse(results.SNRbefore(pcvoxels),datagain(pcvoxels),20000,0,36,'r','.');
+    if ~wantbypass
+      scattersparse(results.SNRbefore(pcvoxels),datagain(pcvoxels),20000,0,36,'r','.');
+    end
     ax = axis; axis([rng ax(3:4)]);
     xlabel('SNR (before denoising)');
     ylabel('Equivalent amount of data gained (%)');
@@ -1042,7 +1106,7 @@ if ~isempty(figuredir)
     for q=1:size(results.pcweights,dimdata+2)
       temp = subscript(results.pcweights,[repmat({':'},[1 dimdata]) {p} {q}]);
       imwrite(uint8(255*makeimagestack(temp,[-thresh thresh])),cmapsign(256), ...
-              sprintf(fullfile(figuredir,'PCmap','PCmap_run%02d_num%02d.png'),q,p));
+              fullfile(figuredir,'PCmap',sprintf('PCmap_run%02d_num%02d.png',q,p)));
     end
   end
 
