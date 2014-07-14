@@ -26,6 +26,10 @@ If you use GLMdenoise in your research, please cite the following paper:
     Front. Neurosci. 7:247. doi: 10.3389/fnins.2013.00247
 
 History of major code changes:
+- 2014/07/14:
+    Version 1.31.
+    - Minor fixes to improve platform compatibility.
+    - Add additional input flexibility.
 - 2013/12/13:
     Version 1.3.
     - Added new example scripts.
