@@ -82,7 +82,7 @@ for p=1:length(design)
       for r=1:length(otimes)
         
         % interpolate to find values at the data sampling time points
-        yvals = yvals + interp1(otimes(r) + hrftimes,model{1}',alltimes,'cubic',0);
+        yvals = yvals + interp1(otimes(r) + hrftimes,model{1}',alltimes,'pchip',0);
 
       end
 
