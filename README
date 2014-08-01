@@ -26,6 +26,13 @@ If you use GLMdenoise in your research, please cite the following paper:
     Front. Neurosci. 7:247. doi: 10.3389/fnins.2013.00247
 
 History of major code changes:
+- 2014/08/01:
+    Version 1.4.
+    - Add option for obtaining parametric GLM fits and error estimates.
+    - Add new DVARS sanity-check figures.
+    - Change the polynomial functions such that they are all mutually orthogonal
+      and unit-length.  This may cause slight changes to behavior due to numerical
+      precision issues.
 - 2014/07/14:
     Version 1.31.
     - Minor fixes to improve platform compatibility.

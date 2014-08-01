@@ -159,6 +159,12 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %     (e.g., <brainthresh>, <brainR2>, <brainexclude>, <pcR2cutoff>, <pcR2cutoffmask>, 
 %     and <pcstop>) and various outputs and figures are omittted.  Default is [] which 
 %     means to perform the usual GLMdenoise procedure.
+%   <wantparametric> (optional) is whether to compute parametric GLM fits and associated
+%     error estimates.  These are added as additional outputs in the <results> struct.
+%     Default: 0.
+%   <wantsanityfigures> (optional) is whether to write out figures that allow you
+%     to sanity-check the data.  You may want to set this to 0 to save computational
+%     time.  Default: 1.
 % <figuredir> (optional) is a directory to which to write figures.  (If the
 %   directory does not exist, we create it; if the directory already exists,
 %   we delete its contents so we can start afresh.)  If [], no figures are
@@ -204,6 +210,13 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % <inputs> is a struct containing all inputs used in the call to this
 %   function, excluding <data>.  We additionally include a field called 
 %   'datasize' which contains the size of each element of <data>.
+% <parametric> is a struct that is included if opt.wantparametric.  The fields are:
+%   <designmatrix> is time x regressors with the full design matrix of the GLM
+%   <parameters> is X x Y x Z x regressors with the beta weight estimate for
+%     each regressor
+%   <parametersse> is X x Y x Z x regressors with the standard error on the beta weights
+%   <noisevar> is X x Y x Z with the estimate of the noise variance (sigma squared)
+%   Note that these are in raw units and are not converted into % BOLD change.
 % 
 % Also return <denoiseddata>, which is just like <data> except that the 
 % component of the data that is estimated to be due to the noise regressors
@@ -279,6 +292,9 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %   data (there should not be any), and with regards to the units of the data 
 %   (the data should consist primarily of positive values and in particular, should
 %   not be mean-subtracted).
+% - "CheckData/CheckDVARS_runN.png" shows the DVARS metric (Power 2012).  Specifically,
+%   this is a time-series of the root-mean-square of the difference between pairs of
+%   successive volumes.
 % - "HRF.png" shows the initial assumed HRF (provided by <hrfknobs>) and the
 %   final estimated HRF (as calculated in step 1).  If <hrfmodel> is 'assume',
 %   the two plots will be identical.  If <hrfmodel> is 'fir', this figure
@@ -359,7 +375,15 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % times at which data are actually sampled.
 %
 % History:
-% - 2013/07/14: add <noisepooldirect> input; fix some file- and directory-related
+% - 2014/08/01: add opt.wantparametric input (which enables parametric GLM fits).
+%               add opt.wantsanityfigures input (which allows user to turn off
+%               the sanity-check figures).  add new DVARS sanity-check figures.
+%               change the form of the polynomials used in the GLM: the
+%               polynomials are now constructed to be orthogonal and unit-length.
+%               note that this changes previous behavior and due to numerical
+%               issues, the outputs given by this function may be slightly
+%               different compared to previous results.
+% - 2014/07/14: add <noisepooldirect> input; fix some file- and directory-related
 %               issues, making things more platform independent
 % - 2013/12/11: rename "global noise regressors" to "noise regressors" in the
 %               documentation; perform a quick error-check for non-finite values
@@ -515,6 +539,12 @@ end
 if ~isequal(hrfmodel,'fir')
   hrfknobs = normalizemax(hrfknobs);
 end
+if ~isfield(opt,'wantparametric') || isempty(opt.wantparametric)
+  opt.wantparametric = 0;
+end
+if ~isfield(opt,'wantsanityfigures') || isempty(opt.wantsanityfigures)
+  opt.wantsanityfigures = 1;
+end
 if length(opt.maxpolydeg) == 1
   opt.maxpolydeg = repmat(opt.maxpolydeg,[1 numruns]);
 end
@@ -532,7 +562,9 @@ if ~isempty(figuredir)
   end
   assert(mkdir(figuredir));
   assert(mkdir(fullfile(figuredir,'PCmap')));
-  assert(mkdir(fullfile(figuredir,'CheckData')));
+  if opt.wantsanityfigures
+    assert(mkdir(fullfile(figuredir,'CheckData')));
+  end
   figuredir = absolutepath(figuredir);
 end
 
@@ -542,7 +574,7 @@ wantbypass = ~isempty(opt.noisepooldirect);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% PRE-FLIGHT SANITY CHECK
 
-if ~isempty(figuredir)
+if ~isempty(figuredir) && opt.wantsanityfigures
   fprintf('*** GLMdenoisedata: generating sanity-check figures. ***\n');
   
   % make figure showing mean and std dev of each volume over time
@@ -551,8 +583,9 @@ if ~isempty(figuredir)
     % calc
     meants = mean(squish(data{p},dimdata),1);
     stdts = std(squish(data{p},dimdata),[],1);
+    dvarts = sqrt(mean(diff(squish(data{p},dimdata),1,2).^2,1));  % RMS of frame-to-frame change
 
-    % make figure
+    % make mean+std figure
     figureprep([100 100 1000 300]); hold on;
     errorbar2(1:length(meants),meants,stdts,'v','r-');
     plot(1:length(meants),meants,'r-');
@@ -561,6 +594,15 @@ if ~isempty(figuredir)
     ylabel('Signal (raw units)');
     title(sprintf('Run %d (mean + std dev of each volume)',p));
     figurewrite(sprintf('CheckMeanStd_run%02d',p),[],[],fullfile(figuredir,'CheckData'));
+
+    % make dvars figure
+    figureprep([100 100 1000 300]); hold on;
+    plot(dvarts,'r-');
+    ax = axis; axis([1-10 length(dvarts)+10 ax(3:4)]);
+    xlabel('Volume number');
+    ylabel('RMS of difference image (raw units)');
+    title(sprintf('Run %d (DVARS)',p));
+    figurewrite(sprintf('CheckDVARS_run%02d',p),[],[],fullfile(figuredir,'CheckData'));
 
   end
 
@@ -808,11 +850,11 @@ for q=1:numruns
 end
 opt2.wantpercentbold = 0;  % do not do the conversion yet.  we will do it ourselves below.
 fprintf('*** GLMdenoisedata: fitting final model (with denoising). ***\n');
-switch hrfmodel
+switch hrfmodel     % note that we will use the rawdesign field from the cache output for the parametric fits
 case {'optimize' 'assume'}
-  results = GLMestimatemodel(design,data,stimdur,tr,'assume',hrf,opt.numboots,opt2);
+  [results,cache] = GLMestimatemodel(design,data,stimdur,tr,'assume',hrf,opt.numboots,opt2);
 case 'fir'
-  results = GLMestimatemodel(design,data,stimdur,tr,'fir',hrfknobs,opt.numboots,opt2);
+  [results,cache] = GLMestimatemodel(design,data,stimdur,tr,'fir',hrfknobs,opt.numboots,opt2);
 end
 
 % prepare additional outputs
@@ -832,6 +874,52 @@ amp = (results.signal + signal_nodenoise)/2;
 results.SNRbefore = amp ./ noise_nodenoise;
 results.SNRafter = amp ./ results.noise;
 clear amp signal_nodenoise noise_nodenoise;
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% PARAMETRIC FITS AND ERROR ESTIMATES
+
+if opt.wantparametric
+
+  fprintf('*** GLMdenoisedata: calculating parametric fits and error estimates. ***\n');
+
+  % construct design matrix
+  temp = {};
+  for p=1:numruns
+    numtime = size(data{p},dimtime);
+    temp{p} = cat(2,constructpolynomialmatrix(numtime,0:opt.maxpolydeg(p)), ...
+                    opt.extraregressors{p}, ...
+                    results.pcregressors{p}(:,1:results.pcnum));
+  end
+  results.parametric.designmatrix = [catcell(1,cache.rawdesign) blkdiag(temp{:})];  % time x regressors
+
+  % estimate parameters using OLS
+  results.parametric.parameters = ...
+    mtimescell(olsmatrix2(results.parametric.designmatrix), ...
+               cellfun(@(x) squish(x,dimdata)',data,'UniformOutput',0));  % regressors x voxels
+
+  % compute sum of the squares of the residuals (e.g. sum(resid.^2))
+  sumsq = sum((results.parametric.designmatrix * results.parametric.parameters - ...
+               catcell(1,cellfun(@(x) squish(x,dimdata)',data,'UniformOutput',0))).^2,1);  % 1 x voxels
+
+  % estimate noise variance (e.g. sum(resid.^2) / (n - rank(X)))
+  results.parametric.noisevar = ...  % 1 x voxels
+    sumsq ./ (size(results.parametric.designmatrix,1) - rank(results.parametric.designmatrix));
+
+  % calculate standard error on parameters (e.g. sqrt(sigma^2 * inv(X'*X)))
+  good = ~all(results.parametric.designmatrix==0,1);
+  X = results.parametric.designmatrix(:,good);
+  results.parametric.parametersse = ...  % regressors x voxels
+    sqrt(bsxfun(@times,results.parametric.noisevar, ...
+                copymatrix(zeros(size(results.parametric.designmatrix,2),1),good,diag(inv(X'*X)))));
+  
+  % clean up
+  clear temp sumsq good X;
+  
+  % prepare for output
+  results.parametric.parameters =   reshape(results.parametric.parameters',  [xyzsize size(results.parametric.parameters,1)]);
+  results.parametric.noisevar =     reshape(results.parametric.noisevar,     [xyzsize 1]);
+  results.parametric.parametersse = reshape(results.parametric.parametersse',[xyzsize size(results.parametric.parametersse,1)]);
+
+end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% CALCULATE DENOISED DATA AND PCWEIGHTS
 
