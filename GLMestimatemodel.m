@@ -211,6 +211,7 @@ function [results,cache] = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfk
 % execution halts.
 %
 % History:
+% - 2014/07/31: return rawdesign in cache; change cubic to pchip to avoid warnings
 % - 2013/12/11: now, after we are done using opt.seed, we reset the random number seed 
 %               to something random (specifically, sum(100*clock)).
 % - 2013/11/18: add cache input/output; update documentation; new default for
@@ -377,6 +378,9 @@ end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% FIT MODELS
 
+% note: cache.rawdesign will exist for 'fir' and 'assume' but not 'optimize' and
+%       for 'full' and 'boot' but not 'xval'.
+
 switch resamplecase
 
 case 'full'
@@ -386,8 +390,9 @@ case 'full'
   % fit the model to the entire dataset.  we obtain just one analysis result.
   if ~opt.suppressoutput, fprintf('fitting model...');, end
   results = {};
-  [results{1},hrffitvoxels,cache] = fitmodel_helper(design,data2,tr,hrfmodel,hrfknobs, ...
-                              opt,combinedmatrix,dimdata,dimtime,cache);
+  [results{1},hrffitvoxels,cache] = ...
+    fitmodel_helper(design,data2,tr,hrfmodel,hrfknobs, ...
+                    opt,combinedmatrix,dimdata,dimtime,cache);
   if ~opt.suppressoutput, fprintf('done.\n');, end
 
 case 'boot'
@@ -397,11 +402,12 @@ case 'boot'
   % set random seed
   setrandstate({opt.seed});
 
-  % in this case (bootstrap + optimize), we should do a pre-call to get some cache
-  if isequal(hrfmodel,'optimize')
-    [d,d,cache] = fitmodel_helper(design,data2,tr,hrfmodel,hrfknobs, ...
-                                opt,combinedmatrix,dimdata,dimtime,cache);
-  end
+  % there are two reasons to call this line.  one is that in the case of
+  % (bootstrap + optimize), we have to do a pre-call to get some cache.
+  % another is that we may need the cache.rawdesign output.  so, let's just call it.
+  [d,d,cache] = ...
+    fitmodel_helper(design,data2,tr,hrfmodel,hrfknobs, ...
+                    opt,combinedmatrix,dimdata,dimtime,cache);
 
   % loop over bootstraps and collect up the analysis results.
   results = {};
@@ -646,13 +652,16 @@ end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% HELPER FUNCTION:
 
-function [f,hrffitvoxels,cache] = fitmodel_helper(design,data2,tr,hrfmodel,hrfknobs,opt,combinedmatrix,dimdata,dimtime,cache)
+function [f,hrffitvoxels,cache] = ...
+  fitmodel_helper(design,data2,tr,hrfmodel,hrfknobs,opt,combinedmatrix,dimdata,dimtime,cache)
 
 % if hrfmodel is 'fir', then <f> will be voxels x conditions x time (flattened format)
 % if hrfmodel is 'assume' or 'optimize', then <f> will be {A B}
 %   where A is time x 1 and B is voxels x conditions (flattened format).
 % <hrffitvoxels> is [] unless hrfmodel is 'optimize', in which case it will be
 %   a column vector of voxel indices.
+%
+% note: cache.rawdesign will exist for 'fir' and 'assume' but not 'optimize'.
 
 % internal constants
 minR2 = 99;  % in 'optimize' mode, if R^2 between previous HRF and new HRF
@@ -678,6 +687,9 @@ case 'fir'
     % expand original design matrix using delta basis functions.
     % the length of each timecourse is L.
     design{p} = constructstimulusmatrices(full(design{p})',0,hrfknobs,0);  % time x L*conditions
+    
+    % save a record of the raw design matrix
+    cache.rawdesign{p} = design{p};
     
     % remove polynomials and extra regressors
     design{p} = combinedmatrix{p}*design{p};  % time x L*conditions
@@ -714,7 +726,7 @@ case 'assume'
         for r=1:length(otimes)
         
           % interpolate to find values at the data sampling time points
-          yvals = yvals + interp1(otimes(r) + hrftimes,hrfknobs',alltimes,'cubic',0);
+          yvals = yvals + interp1(otimes(r) + hrftimes,hrfknobs',alltimes,'pchip',0);
 
         end
 
@@ -722,6 +734,9 @@ case 'assume'
         temp(:,q) = yvals;
 
       end
+
+      % save a record of the raw design matrix
+      cache.rawdesign{p} = temp;
       
       % remove polynomials and extra regressors
       design{p} = combinedmatrix{p}*temp;  % time x conditions
@@ -733,6 +748,9 @@ case 'assume'
       ntime = size(design{p},1);                    % number of time points
       design{p} = conv2(full(design{p}),hrfknobs);  % convolve
       design{p} = design{p}(1:ntime,:);             % extract desired subset
+
+      % save a record of the raw design matrix
+      cache.rawdesign{p} = design{p};
     
       % remove polynomials and extra regressors
       design{p} = combinedmatrix{p}*design{p};  % time x conditions
