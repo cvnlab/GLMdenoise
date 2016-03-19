@@ -338,8 +338,14 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% CALCULATE MEAN VOLUME
 
 volcnt = cellfun(@(x) size(x,dimtime),data);
-meanvol = reshape(catcell(2,cellfun(@(x) squish(mean(x,dimtime),dimdata),data,'UniformOutput',0)) ...
-                  * (volcnt' / sum(volcnt)),[xyzsize 1]);
+temp = {};  % using this instead of cellfun to reduce memory usage
+for p=1:length(data)
+  temp{p} = squish(mean(data{p},dimtime),dimdata);
+end
+meanvol = reshape(catcell(2,temp) * (volcnt' / sum(volcnt)),[xyzsize 1]);
+  % OLD:
+  % meanvol = reshape(catcell(2,cellfun(@(x) squish(mean(x,dimtime),dimdata),data,'UniformOutput',0)) ...
+  %                   * (volcnt' / sum(volcnt)),[xyzsize 1]);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% DEAL WITH NUISANCE COMPONENTS
 
