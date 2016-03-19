@@ -1096,8 +1096,10 @@ if ~isempty(figuredir)
   imwrite(uint8(255*makeimagestack(results.meanvol,1)),gray(256),fullfile(figuredir,'MeanVolume.png'));
 
   % write out image showing noise pool
-  imwrite(uint8(255*makeimagestack(results.noisepool,[0 1])),gray(256),fullfile(figuredir,'NoisePool.png'));
-
+  if ~isempty(results.noisepool)  % in certain degenerate cases, this might happen
+    imwrite(uint8(255*makeimagestack(results.noisepool,[0 1])),gray(256),fullfile(figuredir,'NoisePool.png'));
+  end
+  
   % write out image showing voxels excluded from noise pool
   if ~isequal(opt.brainexclude,0)
     imwrite(uint8(255*makeimagestack(opt.brainexclude,[0 1])),gray(256),fullfile(figuredir,'NoiseExclude.png'));
