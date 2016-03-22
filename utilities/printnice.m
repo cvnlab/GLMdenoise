@@ -67,14 +67,14 @@ for p=1:length(figs)
 
   switch mode(1)
   case 0
-    filename = sprintf([prefix '.eps'],fig);
+    filename = sprintf([prefix '.eps'],fig.Number);
     if length(mode) > 1
       print(fig,'-depsc2','-painters','-r300','-loose',filename);
     else
       print(fig,'-depsc2','-painters','-r300',filename);
     end
   case 1
-    filename = sprintf([prefix '.png'],fig);
+    filename = sprintf([prefix '.png'],fig.Number);
     print(fig,'-dpng',['-r' num2str(mode(2))],filename);  % painters, zbuffer, opengl???  what is correct?
   end
 %  fprintf('wrote %s.\n',filename);
