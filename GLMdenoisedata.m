@@ -170,7 +170,8 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %     makeimagestack.m for the purposes of writing image files. Specifying 
 %     <drawfunction> can be useful for transforming values that are
 %     column vectors (XYZ x 1) into a more palatable form. Default is to
-%     do nothing special: @(vals) vals
+%     do nothing special: @(vals) vals. Note that we do not save this input
+%     to results.inputs.opt in order to avoid weird .mat file-saving problems.
 % <figuredir> (optional) is a directory to which to write figures.  (If the
 %   directory does not exist, we create it; if the directory already exists,
 %   we delete its contents so we can start afresh.)  If [], no figures are
@@ -381,6 +382,7 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % times at which data are actually sampled.
 %
 % History:
+% - 2016/09/02: to avoid weird .mat file saving issues, do not save inputs.opt.drawfunction
 % - 2016/04/15: add opt.drawfunction
 % - 2014/08/01: add opt.wantparametric input (which enables parametric GLM fits).
 %               add opt.wantsanityfigures input (which allows user to turn off
@@ -1012,6 +1014,7 @@ results.inputs.tr = tr;
 results.inputs.hrfmodel = hrfmodel;
 results.inputs.hrfknobs = hrfknobs;
 results.inputs.opt = opt;
+results.inputs.opt = rmfield(results.inputs.opt,'drawfunction');  % anonymous functions sometimes cause major file-saving problems, so just omit
 results.inputs.figuredir = figuredir;
 
 if ~wantbypass
