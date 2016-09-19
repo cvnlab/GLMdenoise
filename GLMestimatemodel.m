@@ -18,9 +18,8 @@ function [results,cache] = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfk
 %   are given as a 2D matrix (XYZ x time); however, if you do this, then several of the 
 %   figures that are written out by this function will not be useful to look at.  The 
 %   dimensions of <data> should mirror that of <design>.  (For example, <design> and 
-%   <data> should have the same number of runs, the same number of time points, etc.  
-%   Thus, <data> should have at least two runs since <design> must have at least two 
-%   runs.)  <data> should not contain any NaNs. We automatically convert <data> to 
+%   <data> should have the same number of runs, the same number of time points, etc.)
+%   <data> should not contain any NaNs. We automatically convert <data> to 
 %   single format (if necessary).
 % <stimdur> is the duration of a trial in seconds
 % <tr> is the sampling rate in seconds
