@@ -420,7 +420,7 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % - 2012/11/02 - Initial version.
 % - 2012/10/31 - add meanvol and change that it is the mean of all
 % - 2012/10/30 - Automatic division of HRF!
-
+% Editing for sanity here
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% DEAL WITH INPUTS, ETC.
 
 % input
