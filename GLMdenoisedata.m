@@ -382,6 +382,10 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % times at which data are actually sampled.
 %
 % History:
+% - 2017/02/05: LTD - Adding plots of PC timecourse below pcweight images. and 
+%               adding an opt.reconmask. This allows image reconstruction from data that has been vectorized using a mask
+%               ie. has no zeros whatsoever. If the logical, 3d mask is load into opt.reconmask
+%               and the data is provided as a vector, this will reconstruct all the pretty figures.
 % - 2016/09/02: to avoid weird .mat file saving issues, do not save inputs.opt.drawfunction
 % - 2016/04/15: add opt.drawfunction
 % - 2014/08/01: add opt.wantparametric input (which enables parametric GLM fits).
@@ -429,7 +433,7 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % - 2012/11/02 - Initial version.
 % - 2012/10/31 - add meanvol and change that it is the mean of all
 % - 2012/10/30 - Automatic division of HRF!
-% Editing for sanity here
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% DEAL WITH INPUTS, ETC.
 
 % input
@@ -1070,8 +1074,24 @@ if ~isempty(figuredir)
     figurewrite('HRF',[],[],figuredir);
   end
   
+   %create the correctly sized mask for reconstructing 3d images from vecs
+    if isfield(opt, 'reconmask')
+        mask_vec = reshape(opt.reconmask,[],1);
+        x_dim = size(opt.reconmask,1);
+        y_dim = size(opt.reconmask,2);
+        z_dim = size(opt.reconmask,3);
+    end
+    
+  
   % write out image showing HRF fit voxels
   if isequal(hrfmodel,'optimize') && ~isempty(results.hrffitvoxels)
+        if isfield(opt, 'reconmask')
+            mask_vec = reshape(opt.reconmask,[],1);
+            hrffit_recon = mask_vec;
+            hrffit_recon(mask_vec ~=0) = results.hrffitvoxels;
+            hrffit_recon = single(reshape(hrffit_recon,x_dim,y_dim,z_dim));
+            results.hrffitvoxels = hrffit_recon;
+        end
     imwrite(uint8(255*makeimagestack(opt.drawfunction(results.hrffitvoxels),[0 1])),gray(256),fullfile(figuredir,'HRFfitvoxels.png'));
   end
 
@@ -1106,20 +1126,44 @@ if ~isempty(figuredir)
   end
 
   % write out image showing mean volume (of first run)
+  if isfield(opt, 'reconmask')
+        mean_vol_recon = mask_vec;
+        mean_vol_recon(mask_vec ~=0) = results.meanvol;
+        mean_vol_recon = reshape(mean_vol_recon, x_dim,y_dim,z_dim);
+        results.meanvol=mean_vol_recon;
+  end
   imwrite(uint8(255*makeimagestack(opt.drawfunction(results.meanvol),1)),gray(256),fullfile(figuredir,'MeanVolume.png'));
 
   % write out image showing noise pool
   if ~isempty(results.noisepool)  % in certain degenerate cases, this might happen
+        if isfield(opt, 'reconmask')
+            noisepool_recon = mask_vec;
+            noisepool_recon(mask_vec ~=0) = results.noisepool;
+            noisepool_recon = reshape(noisepool_recon, x_dim,y_dim,z_dim);
+            results.noisepool=noisepool_recon;
+        end
     imwrite(uint8(255*makeimagestack(opt.drawfunction(results.noisepool),[0 1])),gray(256),fullfile(figuredir,'NoisePool.png'));
   end
   
   % write out image showing voxels excluded from noise pool
   if ~isequal(opt.brainexclude,0)
+        if isfield(opt, 'reconmask')
+            temp_recon = mask_vec;
+            temp_recon(mask_vec ~=0) = opt.brainexclude;
+            temp_recon = reshape(temp_recon, x_dim,y_dim,z_dim);
+            opt.brainexclude=temp_recon;
+        end
     imwrite(uint8(255*makeimagestack(opt.drawfunction(opt.brainexclude),[0 1])),gray(256),fullfile(figuredir,'NoiseExclude.png'));
   end
 
   % write out image showing voxel mask for HRF fitting
   if isequal(hrfmodel,'optimize') && ~isequal(opt.hrffitmask,1)
+       if isfield(opt, 'reconmask')
+            temp_recon = mask_vec;
+            temp_recon(mask_vec ~=0) = opt.hrffitmask;
+            temp_recon = reshape(temp_recon, x_dim,y_dim,z_dim);
+            opt.hrffitmask=temp_recon;
+        end
     imwrite(uint8(255*makeimagestack(opt.drawfunction(opt.hrffitmask),[0 1])),gray(256),fullfile(figuredir,'HRFfitmask.png'));
   end
 
@@ -1131,10 +1175,22 @@ if ~isempty(figuredir)
 
     % write out image showing voxel mask for PC selection
     if ~isequal(opt.pcR2cutoffmask,1)
+            if isfield(opt, 'reconmask')
+                temp_recon = mask_vec;
+                temp_recon(mask_vec ~=0) = opt.pcR2cutoffmask;
+                temp_recon = reshape(temp_recon, x_dim,y_dim,z_dim);
+                opt.pcR2cutoffmask=temp_recon;
+            end
       imwrite(uint8(255*makeimagestack(opt.drawfunction(opt.pcR2cutoffmask),[0 1])),gray(256),fullfile(figuredir,'PCmask.png'));
     end
   
     % write out image showing the actual voxels used for PC selection
+    if isfield(opt, 'reconmask')
+            temp_recon = mask_vec;
+            temp_recon(mask_vec ~=0) = results.pcvoxels;
+            temp_recon = reshape(temp_recon, x_dim,y_dim,z_dim);
+            results.pcvoxels=temp_recon;
+    end
     imwrite(uint8(255*makeimagestack(opt.drawfunction(results.pcvoxels),[0 1])),gray(256),fullfile(figuredir,'PCvoxels.png'));
 
     % figure out bounds for the R^2 values
@@ -1150,6 +1206,12 @@ if ~isempty(figuredir)
     % write out cross-validated R^2 for the various numbers of PCs
     for p=1:size(results.pcR2,dimdata+1)
       temp = subscript(results.pcR2,[repmat({':'},[1 dimdata]) {p}]);
+      if isfield(opt, 'reconmask')
+                temp_recon = mask_vec;
+                temp_recon(mask_vec ~=0) = temp;
+                temp_recon = reshape(temp_recon, x_dim,y_dim,z_dim);
+                temp=temp_recon;
+            end
       feval(imfun,temp,fullfile(figuredir,sprintf('PCcrossvalidation%02d.png',p-1)));
       feval(imfunB,temp,fullfile(figuredir,sprintf('PCcrossvalidationscaled%02d.png',p-1)));
     end
@@ -1157,18 +1219,48 @@ if ~isempty(figuredir)
   end
 
   % write out overall R^2 for final model
+  if isfield(opt, 'reconmask')
+        temp_recon = mask_vec;
+        temp_recon(mask_vec ~=0) = results.R2;
+        temp_recon = reshape(temp_recon, x_dim,y_dim,z_dim);
+        results.R2=temp_recon;
+  end
   feval(imfun,results.R2,fullfile(figuredir,sprintf('FinalModel.png')));
 
   % write out R^2 separated by runs for final model
   for p=1:size(results.R2run,dimdata+1)
     temp = subscript(results.R2run,[repmat({':'},[1 dimdata]) {p}]);
+    if isfield(opt, 'reconmask')
+            temp_recon = mask_vec;
+            temp_recon(mask_vec ~=0) = temp;
+            temp_recon = reshape(temp_recon, x_dim,y_dim,z_dim);
+            temp=temp_recon;
+        end
     feval(imfun,temp,fullfile(figuredir,sprintf('FinalModel_run%02d.png',p)));
   end
   
   % write out signal, noise, and SNR
+  if isfield(opt, 'reconmask')
+        temp_recon = mask_vec;
+        temp_recon(mask_vec ~=0) = results.signal;
+        temp_recon = reshape(temp_recon, x_dim,y_dim,z_dim);
+        results.signal=temp_recon;
+  end
   imwrite(uint8(255*makeimagestack(opt.drawfunction(results.signal),[0 prctile(results.signal(:),99)])),hot(256),fullfile(figuredir,'SNRsignal.png'));
   if opt.numboots ~= 0
+                if isfield(opt, 'reconmask')
+                    temp_recon = mask_vec;
+                    temp_recon(mask_vec ~=0) = results.noise;
+                    temp_recon = reshape(temp_recon, x_dim,y_dim,z_dim);
+                    results.noise=temp_recon;
+                end
     imwrite(uint8(255*makeimagestack(opt.drawfunction(results.noise),[0 max(eps,prctile(results.noise(:),99))])),hot(256),fullfile(figuredir,'SNRnoise.png'));
+                if isfield(opt, 'reconmask')
+                    temp_recon = mask_vec;
+                    temp_recon(mask_vec ~=0) = results.SNR;
+                    temp_recon = reshape(temp_recon, x_dim,y_dim,z_dim);
+                    results.SNR=temp_recon;
+                end
     imwrite(uint8(255*makeimagestack(opt.drawfunction(results.SNR),[0 10])),hot(256),fullfile(figuredir,'SNR.png'));
   end
   
@@ -1208,8 +1300,30 @@ if ~isempty(figuredir)
   for p=1:size(results.pcweights,dimdata+1)
     for q=1:size(results.pcweights,dimdata+2)
       temp = subscript(results.pcweights,[repmat({':'},[1 dimdata]) {p} {q}]);
-      imwrite(uint8(255*makeimagestack(opt.drawfunction(temp),[-thresh thresh])),cmapsign(256), ...
-              fullfile(figuredir,'PCmap',sprintf('PCmap_run%02d_num%02d.png',q,p)));
+                    if isfield(opt, 'reconmask')
+                        temp_recon = mask_vec;
+                        temp_recon(mask_vec ~=0) = temp;
+                        temp_recon = reshape(temp_recon, x_dim,y_dim,z_dim);
+                        temp=temp_recon;
+                    end
+                    
+                    %Go ahead and create the map as it was originaly done
+                    temp = (255*makeimagestack(opt.drawfunction(temp),[-thresh thresh]));
+                    
+                    time_plot_dim = size(results.pcregressors{1,q}(:,p),1); 
+                    %Make sure the x axis is going to have the right
+                    %length
+                    
+                    
+                    %Create a 3x3 plot space, use the majority for the
+                    %weightmap, only a the last row for weight plot.
+                    
+                    subplot(3,3,[1, 2, 3, 4, 5, 6]); imshow(temp,cmapsign(256));
+                    subplot(3,3,[7, 8, 9]); plot(results.pcregressors{1,q}(:,p)); xlim([0, time_plot_dim]);
+                    
+                    %save everything to the right place
+                    label = strcat('PCmap_run',num2str(q), '_num' , num2str(p));
+                    print(fullfile(figuredir, 'PCmap', label), '-dpng');
     end
   end
 
