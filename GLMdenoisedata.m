@@ -172,6 +172,11 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %     column vectors (XYZ x 1) into a more palatable form. Default is to
 %     do nothing special: @(vals) vals. Note that we do not save this input
 %     to results.inputs.opt in order to avoid weird .mat file-saving problems.
+%   <reconmask> (optional) is a X x Y x Z mask that can be used to reconstruct 3D 
+%     images just prior to figure creation. This can only be done if the data
+%     is provided in vector (XYZ x Time) format AND if the vector doesn't contain 
+%     any zeros (a mask was used to create it). This 'reduced vector' only contains 
+%     data, and has no zero timeseries in it - massively reduces RAM required.
 % <figuredir> (optional) is a directory to which to write figures.  (If the
 %   directory does not exist, we create it; if the directory already exists,
 %   we delete its contents so we can start afresh.)  If [], no figures are
@@ -1318,8 +1323,8 @@ if ~isempty(figuredir)
                     %Create a 3x3 plot space, use the majority for the
                     %weightmap, only a the last row for weight plot.
                     
-                    subplot(3,3,[1, 2, 3, 4, 5, 6]); imshow(temp,cmapsign(256));
-                    subplot(3,3,[7, 8, 9]); plot(results.pcregressors{1,q}(:,p)); xlim([0, time_plot_dim]);
+                    subplot(4,3,[1, 2, 3, 4, 5, 6, 7, 8, 9]); imshow(temp,cmapsign(256));
+                    subplot(4,3,[10, 11, 12]); plot(results.pcregressors{1,q}(:,p)); xlim([0, time_plot_dim]);
                     
                     %save everything to the right place
                     label = strcat('PCmap_run',num2str(q), '_num' , num2str(p));
