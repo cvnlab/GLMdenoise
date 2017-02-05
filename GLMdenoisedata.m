@@ -165,6 +165,13 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %   <wantsanityfigures> (optional) is whether to write out figures that allow you
 %     to sanity-check the data.  You may want to set this to 0 to save computational
 %     time.  Default: 1.
+%	  <drawfunction> (optional) is a function that accepts values that are X x Y x Z
+%     (or XYZ x 1) and returns a 2D or 3D matrix. This matrix is then passed to
+%     makeimagestack.m for the purposes of writing image files. Specifying 
+%     <drawfunction> can be useful for transforming values that are
+%     column vectors (XYZ x 1) into a more palatable form. Default is to
+%     do nothing special: @(vals) vals. Note that we do not save this input
+%     to results.inputs.opt in order to avoid weird .mat file-saving problems.
 % <figuredir> (optional) is a directory to which to write figures.  (If the
 %   directory does not exist, we create it; if the directory already exists,
 %   we delete its contents so we can start afresh.)  If [], no figures are
@@ -375,6 +382,8 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % times at which data are actually sampled.
 %
 % History:
+% - 2016/09/02: to avoid weird .mat file saving issues, do not save inputs.opt.drawfunction
+% - 2016/04/15: add opt.drawfunction
 % - 2014/08/01: add opt.wantparametric input (which enables parametric GLM fits).
 %               add opt.wantsanityfigures input (which allows user to turn off
 %               the sanity-check figures).  add new DVARS sanity-check figures.
@@ -544,6 +553,9 @@ if ~isfield(opt,'wantparametric') || isempty(opt.wantparametric)
 end
 if ~isfield(opt,'wantsanityfigures') || isempty(opt.wantsanityfigures)
   opt.wantsanityfigures = 1;
+end
+if ~isfield(opt,'drawfunction') || isempty(opt.drawfunction)
+  opt.drawfunction = @(vals) vals;
 end
 if length(opt.maxpolydeg) == 1
   opt.maxpolydeg = repmat(opt.maxpolydeg,[1 numruns]);
@@ -1002,6 +1014,7 @@ results.inputs.tr = tr;
 results.inputs.hrfmodel = hrfmodel;
 results.inputs.hrfknobs = hrfknobs;
 results.inputs.opt = opt;
+results.inputs.opt = rmfield(results.inputs.opt,'drawfunction');  % anonymous functions sometimes cause major file-saving problems, so just omit
 results.inputs.figuredir = figuredir;
 
 if ~wantbypass
@@ -1059,7 +1072,7 @@ if ~isempty(figuredir)
   
   % write out image showing HRF fit voxels
   if isequal(hrfmodel,'optimize') && ~isempty(results.hrffitvoxels)
-    imwrite(uint8(255*makeimagestack(results.hrffitvoxels,[0 1])),gray(256),fullfile(figuredir,'HRFfitvoxels.png'));
+    imwrite(uint8(255*makeimagestack(opt.drawfunction(results.hrffitvoxels),[0 1])),gray(256),fullfile(figuredir,'HRFfitvoxels.png'));
   end
 
   if ~wantbypass
@@ -1093,34 +1106,36 @@ if ~isempty(figuredir)
   end
 
   % write out image showing mean volume (of first run)
-  imwrite(uint8(255*makeimagestack(results.meanvol,1)),gray(256),fullfile(figuredir,'MeanVolume.png'));
+  imwrite(uint8(255*makeimagestack(opt.drawfunction(results.meanvol),1)),gray(256),fullfile(figuredir,'MeanVolume.png'));
 
   % write out image showing noise pool
-  imwrite(uint8(255*makeimagestack(results.noisepool,[0 1])),gray(256),fullfile(figuredir,'NoisePool.png'));
-
+  if ~isempty(results.noisepool)  % in certain degenerate cases, this might happen
+    imwrite(uint8(255*makeimagestack(opt.drawfunction(results.noisepool),[0 1])),gray(256),fullfile(figuredir,'NoisePool.png'));
+  end
+  
   % write out image showing voxels excluded from noise pool
   if ~isequal(opt.brainexclude,0)
-    imwrite(uint8(255*makeimagestack(opt.brainexclude,[0 1])),gray(256),fullfile(figuredir,'NoiseExclude.png'));
+    imwrite(uint8(255*makeimagestack(opt.drawfunction(opt.brainexclude),[0 1])),gray(256),fullfile(figuredir,'NoiseExclude.png'));
   end
 
   % write out image showing voxel mask for HRF fitting
   if isequal(hrfmodel,'optimize') && ~isequal(opt.hrffitmask,1)
-    imwrite(uint8(255*makeimagestack(opt.hrffitmask,[0 1])),gray(256),fullfile(figuredir,'HRFfitmask.png'));
+    imwrite(uint8(255*makeimagestack(opt.drawfunction(opt.hrffitmask),[0 1])),gray(256),fullfile(figuredir,'HRFfitmask.png'));
   end
 
   % define a function that will write out R^2 values to an image file
   imfun = @(results,filename) ...
-    imwrite(uint8(255*makeimagestack(signedarraypower(results/100,0.5),[0 1])),hot(256),filename);
+    imwrite(uint8(255*makeimagestack(opt.drawfunction(signedarraypower(results/100,0.5)),[0 1])),hot(256),filename);
 
   if ~wantbypass
 
     % write out image showing voxel mask for PC selection
     if ~isequal(opt.pcR2cutoffmask,1)
-      imwrite(uint8(255*makeimagestack(opt.pcR2cutoffmask,[0 1])),gray(256),fullfile(figuredir,'PCmask.png'));
+      imwrite(uint8(255*makeimagestack(opt.drawfunction(opt.pcR2cutoffmask),[0 1])),gray(256),fullfile(figuredir,'PCmask.png'));
     end
   
     % write out image showing the actual voxels used for PC selection
-    imwrite(uint8(255*makeimagestack(results.pcvoxels,[0 1])),gray(256),fullfile(figuredir,'PCvoxels.png'));
+    imwrite(uint8(255*makeimagestack(opt.drawfunction(results.pcvoxels),[0 1])),gray(256),fullfile(figuredir,'PCvoxels.png'));
 
     % figure out bounds for the R^2 values
     bounds = prctile(results.pcR2(:),[1 99]);
@@ -1130,7 +1145,7 @@ if ~isempty(figuredir)
 
     % define another R^2 image-writing function
     imfunB = @(results,filename) ...
-      imwrite(uint8(255*makeimagestack(signedarraypower(normalizerange(results,0,1,bounds(1),bounds(2)),0.5),[0 1])),hot(256),filename);
+      imwrite(uint8(255*makeimagestack(opt.drawfunction(signedarraypower(normalizerange(results,0,1,bounds(1),bounds(2)),0.5)),[0 1])),hot(256),filename);
 
     % write out cross-validated R^2 for the various numbers of PCs
     for p=1:size(results.pcR2,dimdata+1)
@@ -1151,10 +1166,10 @@ if ~isempty(figuredir)
   end
   
   % write out signal, noise, and SNR
-  imwrite(uint8(255*makeimagestack(results.signal,[0 prctile(results.signal(:),99)])),hot(256),fullfile(figuredir,'SNRsignal.png'));
+  imwrite(uint8(255*makeimagestack(opt.drawfunction(results.signal),[0 prctile(results.signal(:),99)])),hot(256),fullfile(figuredir,'SNRsignal.png'));
   if opt.numboots ~= 0
-    imwrite(uint8(255*makeimagestack(results.noise,[0 max(eps,prctile(results.noise(:),99))])),hot(256),fullfile(figuredir,'SNRnoise.png'));
-    imwrite(uint8(255*makeimagestack(results.SNR,[0 10])),hot(256),fullfile(figuredir,'SNR.png'));
+    imwrite(uint8(255*makeimagestack(opt.drawfunction(results.noise),[0 max(eps,prctile(results.noise(:),99))])),hot(256),fullfile(figuredir,'SNRnoise.png'));
+    imwrite(uint8(255*makeimagestack(opt.drawfunction(results.SNR),[0 10])),hot(256),fullfile(figuredir,'SNR.png'));
   end
   
   % write out SNR comparison figures (first figure)
@@ -1193,7 +1208,7 @@ if ~isempty(figuredir)
   for p=1:size(results.pcweights,dimdata+1)
     for q=1:size(results.pcweights,dimdata+2)
       temp = subscript(results.pcweights,[repmat({':'},[1 dimdata]) {p} {q}]);
-      imwrite(uint8(255*makeimagestack(temp,[-thresh thresh])),cmapsign(256), ...
+      imwrite(uint8(255*makeimagestack(opt.drawfunction(temp),[-thresh thresh])),cmapsign(256), ...
               fullfile(figuredir,'PCmap',sprintf('PCmap_run%02d_num%02d.png',q,p)));
     end
   end
