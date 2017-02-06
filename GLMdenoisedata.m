@@ -478,22 +478,6 @@ if any(flatten(~isfinite(data{1})))
   fprintf('*** GLMdenoisedata: WARNING: we checked the first run and found some non-finite values (e.g. NaN, Inf). unexpected results may occur due to non-finite values. please fix and re-run GLMdenoisedata. ***\n');
 end
 
-%vectorize the data, and remove zeros if a mask is supplied in reconmask
-if isfield(opt,'reconmask') 
-    numvoxels = size(reshape(opt.reconmask, [],1),1);
-    fprintf('*** GLMdenoisedata: vectorizing data.');
-    for i = 1:size(data,2)
-        t_dim = size(data{1,i},4);
-        data{1,i} = reshape(data{1,i}, [], t_dim);
-        mask_ind = opt.reconmask(:,:,:,1) ~= 0; % generate the indices where data is
-        data{1,i} = data{1,i}(mask_ind, :); %generates a vector containing values within mask.
-        new_vox_count = size(data{1,i},1);
-        vec_reduced = (new_vox_count/numvoxels) *100;
-        fprintf('.')
-    end
-    fprintf('\nData reduced to %.2f%% of original size using provided mask \n', vec_reduced);
-end
-
 % calc
 numruns = length(design);
 dataclass = class(data{1});  % will always be 'single'
@@ -1332,13 +1316,15 @@ if ~isempty(figuredir)
                     temp = (255*makeimagestack(opt.drawfunction(temp),[-thresh thresh]));
                     
                     time_plot_dim = size(results.pcregressors{1,q}(:,p),1); 
-                    %Make the x-axis the right length for each run
-                                        
-                    %Create a 4x3 plot space, use the majority for the
+                    %Make sure the x axis is going to have the right
+                    %length
+                    
+                    
+                    %Create a 3x3 plot space, use the majority for the
                     %weightmap, only a the last row for weight plot.
                     
                     subplot(4,3,[1, 2, 3, 4, 5, 6, 7, 8, 9]); imshow(temp,cmapsign(256));
-                    subplot(4,3,[10, 11]); plot(results.pcregressors{1,q}(:,p)); xlim([0, time_plot_dim]);
+                    subplot(4,3,[10, 11, 12]); plot(results.pcregressors{1,q}(:,p)); xlim([0, time_plot_dim]);
                     
                     %save everything to the right place
                     label = strcat('PCmap_run',num2str(q), '_num' , num2str(p));
