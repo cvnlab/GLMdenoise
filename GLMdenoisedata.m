@@ -173,7 +173,7 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %     do nothing special: @(vals) vals. Note that we do not save this input
 %     to results.inputs.opt in order to avoid weird .mat file-saving problems.
 %   <reconmask> (optional) is a X x Y x Z mask that can be used to turn the
-%     data into a vector (save RAM, time, sanity) and then at the end, will
+%     data into a data-only vector (save RAM, time, sanity) and then at the end, will
 %     also be used to reconstruct the data back into its 3D state so that it
 %     can be used to create pretty figures.
 % <figuredir> (optional) is a directory to which to write figures.  (If the
@@ -476,6 +476,39 @@ end
 if any(flatten(~isfinite(data{1})))
   fprintf('*** GLMdenoisedata: WARNING: we checked the first run and found some non-finite values (e.g. NaN, Inf). unexpected results may occur due to non-finite values. please fix and re-run GLMdenoisedata. ***\n');
 end
+
+% if opt.reconmask is provided, vectorize and remove zeros
+if isfield(opt,'reconmask') 
+    numvoxels = size(reshape(opt.reconmask, [],1),1);
+    fprintf('*** GLMdenoisedata: vectorizing data.');
+    mask_ind = opt.reconmask(:,:,:,1) ~= 0; % generate the indices where data live
+    for i = 1:size(data,2)
+        t_dim = size(data{1,i},4);
+        data{1,i} = reshape(data{1,i}, [], t_dim);
+        data{1,i} = data{1,i}(mask_ind, :); %generates a vector containing values within mask.
+        new_vox_count = size(data{1,i},1);
+        fprintf('.')
+    end
+
+    if isfield(opt, 'hrffitmask') %convert the provided data masking volumes to equivilent vectors
+    	opt.hrffitmask = reshape(opt.hrffitmask, [], 1)
+    	opt.hrffitmask = opt.hrffitmask(mask_ind, :);
+    end
+
+    if isfield(opt, 'brainexclude')
+    	opt.brainexclude = reshape(opt.brainexclude, [] ,1)
+    	opt.brainexclude = opt.brainexclude(mask_ind, :);
+    end
+
+    if isfield(opt, 'pcR2cutoffmask')
+    	opt.pcR2cutoffmask = reshape(opt.pcR2cutoffmask, [] ,1)
+    	opt.pcR2cutoffmask = opt.pcR2cutoffmask(mask_ind, :);
+    end
+
+    vec_reduced = (new_vox_count/numvoxels) *100;
+    fprintf('\nData reduced to %.2f%% of original size using provided mask \n', vec_reduced);
+end
+
 
 % calc
 numruns = length(design);
