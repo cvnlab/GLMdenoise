@@ -172,10 +172,9 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 %     column vectors (XYZ x 1) into a more palatable form. Default is to
 %     do nothing special: @(vals) vals. Note that we do not save this input
 %     to results.inputs.opt in order to avoid weird .mat file-saving problems.
-%   <reconmask> (optional) is a X x Y x Z mask that can be used to turn the
-%     data into a data-only vector (save RAM, time, sanity) and then at the end, will
-%     also be used to reconstruct the data back into its 3D state so that it
-%     can be used to create pretty figures.
+%   <reconmask> (optional) is a X x Y x Z mask that will be used to turn the
+%     (presumably) 3D data into a data x time vector (save RAM, time, sanity)
+%     also used to reconstruct the data back into its 3D state for figures.
 % <figuredir> (optional) is a directory to which to write figures.  (If the
 %   directory does not exist, we create it; if the directory already exists,
 %   we delete its contents so we can start afresh.)  If [], no figures are
@@ -386,10 +385,11 @@ function [results,denoiseddata] = GLMdenoisedata(design,data,stimdur,tr,hrfmodel
 % times at which data are actually sampled.
 %
 % History:
-% - 2017/02/05: LTD - Adding plots of PC timecourse below pcweight images. and 
-%               adding an opt.reconmask. This allows image reconstruction from data that has been vectorized using a mask
-%               ie. has no zeros whatsoever. If the logical, 3d mask is load into opt.reconmask
-%               and the data is provided as a vector, this will reconstruct all the pretty figures.
+% - 2018/07/20: Added plots of PC timecourse below pcweight images.  
+%               Added a new struct for opt, 'reconmask'. This will be  
+%               used to vectorize the data. Suggestion is whole brain mask
+%               (including whitematter/CSF) as a binary map with the exact same
+%               dimensions as data. 3D images will be reconstructed for figure creation
 % - 2016/09/02: to avoid weird .mat file saving issues, do not save inputs.opt.drawfunction
 % - 2016/04/15: add opt.drawfunction
 % - 2014/08/01: add opt.wantparametric input (which enables parametric GLM fits).
