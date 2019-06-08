@@ -95,6 +95,8 @@ function [results,cache] = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfk
 %      the initial HRF.  Set <hrfthresh> to -Inf if you never want to reject
 %      the estimated HRF.  Default: 50.
 %   <suppressoutput> (optional) is whether to suppress fprintf statements.  Default: 0.
+%   <lambda> (optional) is the lambda constant to use for ridge regression.
+%     This takes effect only for the 'fir' and 'assume' cases.  Default: 0.
 % <cache> (optional) is used for speeding up execution.  If you are calling this
 %   function with identical inputs except potentially for different <data>, then
 %   if you can take the <cache> returned by the first call and re-use it for
@@ -210,6 +212,7 @@ function [results,cache] = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfk
 % execution halts.
 %
 % History:
+% - 2019/03/22: return design in cache, add opt.lambda
 % - 2014/07/31: return rawdesign in cache; change cubic to pchip to avoid warnings
 % - 2013/12/11: now, after we are done using opt.seed, we reset the random number seed 
 %               to something random (specifically, sum(100*clock)).
@@ -326,6 +329,9 @@ if ~isfield(opt,'hrfthresh') || isempty(opt.hrfthresh)
 end
 if ~isfield(opt,'suppressoutput') || isempty(opt.suppressoutput)
   opt.suppressoutput = 0;
+end
+if ~isfield(opt,'lambda') || isempty(opt.lambda)
+  opt.lambda = 0;
 end
 if isequal(hrfmodel,'assume') || isequal(hrfmodel,'optimize')
   hrfknobs = normalizemax(hrfknobs);
@@ -472,6 +478,9 @@ case 'xval'
 
 end
 
+% clear
+clear data2;
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% PREPARE MODEL ESTIMATES FOR OUTPUT
 
 % in this special case, we do not have to perform this section,
@@ -550,7 +559,9 @@ end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% COMPUTE MODEL FITS (IF NECESSARY)
 
-if ~(mode==2)
+%%% to save memory, perhaps construct modelfit in chunks??
+
+if ~(ismember(mode,[2]))
 
   if ~opt.suppressoutput, fprintf('computing model fits...');, end
   switch resamplecase
@@ -699,10 +710,13 @@ case 'fir'
     % remove polynomials and extra regressors
     design{p} = combinedmatrix{p}*design{p};  % time x L*conditions
 
+    % save a record of the projected-out design matrix
+    cache.design{p} = design{p};
+
   end
   
   % fit model
-  f = mtimescell(olsmatrix2(cat(1,design{:})),data2);  % L*conditions x voxels
+  f = mtimescell(olsmatrix2(cat(1,design{:}),opt.lambda),data2);  % L*conditions x voxels
   f = permute(reshape(f,hrfknobs+1,numconditions,[]),[3 2 1]);  % voxels x conditions x L
 
 case 'assume'
@@ -745,6 +759,9 @@ case 'assume'
       
       % remove polynomials and extra regressors
       design{p} = combinedmatrix{p}*temp;  % time x conditions
+
+      % save a record of the projected-out design matrix
+      cache.design{p} = design{p};
     
     % if regular matrix case
     else
@@ -760,12 +777,15 @@ case 'assume'
       % remove polynomials and extra regressors
       design{p} = combinedmatrix{p}*design{p};  % time x conditions
 
+      % save a record of the projected-out design matrix
+      cache.design{p} = design{p};
+
     end
 
   end
   
   % fit model
-  f = mtimescell(olsmatrix2(cat(1,design{:})),data2);  % conditions x voxels
+  f = mtimescell(olsmatrix2(cat(1,design{:}),opt.lambda),data2);  % conditions x voxels
   f = {hrfknobs f'};
 
 case 'optimize'
