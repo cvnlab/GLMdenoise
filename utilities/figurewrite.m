@@ -1,6 +1,6 @@
-function figurewrite(prefix,num,mode,outputdir,omitclose)
+function filenames = figurewrite(prefix,num,mode,outputdir,omitclose)
 
-% function figurewrite(prefix,num,mode,outputdir,omitclose)
+% function filenames = figurewrite(prefix,num,mode,outputdir,omitclose)
 %
 % <prefix> (optional) is the filename prefix.  the prefix can include in it
 %   '%d' (or a variant thereof) for the figure number.  you can pass in
@@ -10,12 +10,14 @@ function figurewrite(prefix,num,mode,outputdir,omitclose)
 % <mode> (optional) is like in printnice.m.  can also be a cell vector,
 %   in which we loop over the elements.  default: [1 72].
 %   special case is -1 which means {0 [1 72]}.
+%   special case is -2 which means {-1 [1 72]}.
 % <outputdir> (optional) is the directory to write to.  default: pwd.
 %   we automatically make the directory if it doesn't exist.
 % <omitclose> (optional) is whether to omit the closing of the figure.  default: 0.
 %
 % print current figure to <prefix>.[png,eps] and then close figure.
 % can use in conjunction with figureprep.m.
+% return a cell vector of the files written.
 %
 % example:
 % figureprep;
@@ -43,16 +45,20 @@ end
 if isequal(mode,-1)
   mode = {0 [1 72]};
 end
+if isequal(mode,-2)
+  mode = {-1 [1 72]};
+end
 if ~iscell(mode)
   mode = {mode};
 end
 
 % do it
+filenames = {};
 for p=1:length(mode)
   if isempty(num)
-    printnice([],mode{p},outputdir,prefix);
+    filenames = [filenames printnice([],mode{p},outputdir,prefix)];
   else
-    printnice([],mode{p},outputdir,sprintf(prefix,num));
+    filenames = [filenames printnice([],mode{p},outputdir,sprintf(prefix,num))];
   end
 end
 if ~omitclose
