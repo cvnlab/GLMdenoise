@@ -97,6 +97,9 @@ function [results,cache] = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfk
 %   <suppressoutput> (optional) is whether to suppress fprintf statements.  Default: 0.
 %   <lambda> (optional) is the lambda constant to use for ridge regression.
 %     This takes effect only for the 'fir' and 'assume' cases.  Default: 0.
+%   <frac> (optional) is the frac to use for fractional ridge regression.
+%     This takes effect only for the 'fir' and 'assume' cases.  Default: [].
+%     If [], we use <lambda>. If not [], we use <frac>.
 % <cache> (optional) is used for speeding up execution.  If you are calling this
 %   function with identical inputs except potentially for different <data>, then
 %   if you can take the <cache> returned by the first call and re-use it for
@@ -212,6 +215,7 @@ function [results,cache] = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfk
 % execution halts.
 %
 % History:
+% - 2020/05/09: add opt.frac
 % - 2019/03/22: return design in cache, add opt.lambda
 % - 2014/07/31: return rawdesign in cache; change cubic to pchip to avoid warnings
 % - 2013/12/11: now, after we are done using opt.seed, we reset the random number seed 
@@ -332,6 +336,9 @@ if ~isfield(opt,'suppressoutput') || isempty(opt.suppressoutput)
 end
 if ~isfield(opt,'lambda') || isempty(opt.lambda)
   opt.lambda = 0;
+end
+if ~isfield(opt,'frac') || isempty(opt.frac)
+  opt.frac = [];
 end
 if isequal(hrfmodel,'assume') || isequal(hrfmodel,'optimize')
   hrfknobs = normalizemax(hrfknobs);
@@ -716,7 +723,11 @@ case 'fir'
   end
   
   % fit model
-  f = mtimescell(olsmatrix2(cat(1,design{:}),opt.lambda),data2);  % L*conditions x voxels
+  if ~isempty(opt.frac)
+    f = permute(fracridge(cat(1,design{:}),opt.frac,cat(1,data2{:})),[1 3 2]);  % L*conditions x voxels
+  else
+    f = mtimescell(olsmatrix2(cat(1,design{:}),opt.lambda),data2);  % L*conditions x voxels
+  end
   f = permute(reshape(f,hrfknobs+1,numconditions,[]),[3 2 1]);  % voxels x conditions x L
 
 case 'assume'
@@ -785,7 +796,11 @@ case 'assume'
   end
   
   % fit model
-  f = mtimescell(olsmatrix2(cat(1,design{:}),opt.lambda),data2);  % conditions x voxels
+  if ~isempty(opt.frac)
+    f = permute(fracridge(cat(1,design{:}),opt.frac,cat(1,data2{:})),[1 3 2]);  % conditions x voxels
+  else
+    f = mtimescell(olsmatrix2(cat(1,design{:}),opt.lambda),data2);  % conditions x voxels
+  end
   f = {hrfknobs f'};
 
 case 'optimize'
