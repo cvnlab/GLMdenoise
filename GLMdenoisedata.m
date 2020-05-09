@@ -463,6 +463,7 @@ for p=1:length(data)
     data{p} = single(data{p});
   end
 end
+assert(length(design)>=2 && length(data)>=2,'You must provide at least two runs in order to run GLMdenoisedata.m');
 
 % do some error checking
 if any(flatten(~isfinite(data{1})))
