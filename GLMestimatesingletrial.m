@@ -218,15 +218,17 @@ function results = GLMestimatesingletrial(design,data,stimdur,tr,outputdir,opt)
 % <FitHRFR2run> is separated by run
 % <HRFindex> is the 1-index of the best HRF
 % <HRFindexrun> is separated by run
-% <totalbadness> is cross-validation results for GLMdenoise
-% <xvaltrend> is the summary GLMdenoise cross-validation result on which pcnum selection is done
 % <noisepool> indicates voxels that were selected for the noise pool
 % <pcregressors> indicates the full set of candidate GLMdenoise regressors that were found
+% <totalbadness> is cross-validation results for GLMdenoise
+% <pcvoxels> is the set of voxels use to summarize GLMdenoise cross-validation results
+% <xvaltrend> is the summary GLMdenoise cross-validation result on which pcnum selection is done
 % <pcnum> is the number of PCs that were selected for the final model
 % <FRACvalue> is the fractional regularization level chosen for each voxel
 % <scaleoffset> is the scale and offset applied to RR estimates to best match the unregularized result
 %
 % History:
+% - 2020/05/12 - Add pcvoxels output.
 % - 2020/05/12 - Initial version. Beta version. Use with caution.
 
 %% %%%%%%%%%%%%%%%%%%% DEAL WITH INPUTS
@@ -685,12 +687,14 @@ if opt.wantglmdenoise==0
   pcnum = 0;
   xvaltrend = [];
   totalbadness = [];
+  pcvoxels = [];
 
 % in this case, the user decides (and we can skip the cross-validation)
 elseif opt.pcstop <= 0
   pcnum = -opt.pcstop;
   xvaltrend = [];
   totalbadness = [];
+  pcvoxels = [];
 
 % otherwise, we have to do a lot of work
 else
@@ -768,6 +772,10 @@ else
   end
   xvaltrend = -median(totalbadness(ix,:),1);  % NOTE: sign flip so that high is good
   assert(all(isfinite(xvaltrend)));
+
+  % create for safe-keeping
+  pcvoxels = logical(zeros(nx,ny,nz));
+  pcvoxels(ix) = 1;
   
   % choose number of PCs
   chosen = 0;  % this is the fall-back
@@ -980,10 +988,12 @@ for ttt=1:length(todo)
   
   % save to disk if desired
   if whmodel==3
-    allvars = {'HRFindex','HRFindexrun','totalbadness','pcnum','xvaltrend','noisepool','pcregressors','modelmd','R2','R2run','meanvol'};
+    allvars = {'HRFindex','HRFindexrun','totalbadness','pcvoxels','pcnum','xvaltrend', ...
+               'noisepool','pcregressors','modelmd','R2','R2run','meanvol'};
     file0 = fullfile(outputdir,'TYPEC_FITHRF_GLMDENOISE.mat');
   else
-    allvars = {'HRFindex','HRFindexrun','totalbadness','pcnum','xvaltrend','noisepool','pcregressors','modelmd','R2','R2run','FRACvalue','scaleoffset','meanvol'};
+    allvars = {'HRFindex','HRFindexrun','totalbadness','pcvoxels','pcnum','xvaltrend', ...
+               'noisepool','pcregressors','modelmd','R2','R2run','FRACvalue','scaleoffset','meanvol'};
     file0 = fullfile(outputdir,'TYPED_FITHRF_GLMDENOISE_RR.mat');
   end
   if opt.wantfileoutputs(whmodel)==1
@@ -995,6 +1005,7 @@ for ttt=1:length(todo)
     if opt.wantglmdenoise==1
       if is3d
         imwrite(uint8(255*makeimagestack(noisepool,[0 1])),gray(256),fullfile(outputdir,'noisepool.png'));
+        imwrite(uint8(255*makeimagestack(pcvoxels, [0 1])),gray(256),fullfile(outputdir,'pcvoxels.png'));
       end
       figureprep;
       plot(0:opt.numpcstotry,xvaltrend);
