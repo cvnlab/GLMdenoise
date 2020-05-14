@@ -176,7 +176,7 @@ function results = GLMestimatesingletrial(design,data,stimdur,tr,outputdir,opt)
 %     A = simple ONOFF model
 %     B = single-trial estimates using a tailored HRF for every voxel
 %     C = like B but with GLMdenoise regressors added into the model
-%     D = like C but with ridge regression regularization tailored to each voxel
+%     D = like C but with ridge regression regularization (tailored to each voxel)
 %
 % - wantlibrary=0
 %     A fixed assumed HRF is used in all model types.
@@ -217,17 +217,19 @@ function results = GLMestimatesingletrial(design,data,stimdur,tr,outputdir,opt)
 % <FitHRFR2> is the R2 for each of the different HRFs in the library
 % <FitHRFR2run> is separated by run
 % <HRFindex> is the 1-index of the best HRF
-% <HRFindexrun> is separated by run
-% <noisepool> indicates voxels that were selected for the noise pool
+% <HRFindexrun> is HRFindex separated by run
+% <noisepool> indicates voxels selected for the noise pool
 % <pcregressors> indicates the full set of candidate GLMdenoise regressors that were found
-% <totalbadness> is cross-validation results for GLMdenoise
-% <pcvoxels> is the set of voxels use to summarize GLMdenoise cross-validation results
+% <glmbadness> is cross-validation results for GLMdenoise
+% <pcvoxels> is the set of voxels used to summarize GLMdenoise cross-validation results
 % <xvaltrend> is the summary GLMdenoise cross-validation result on which pcnum selection is done
 % <pcnum> is the number of PCs that were selected for the final model
 % <FRACvalue> is the fractional regularization level chosen for each voxel
 % <scaleoffset> is the scale and offset applied to RR estimates to best match the unregularized result
 %
 % History:
+% - 2020/05/14 - Version 1.0 released!
+%                (Tweak some documentation; output more results; fix a small bug (opt.fracs(1)~=1).)
 % - 2020/05/12 - Add pcvoxels output.
 % - 2020/05/12 - Initial version. Beta version. Use with caution.
 
@@ -286,7 +288,7 @@ if ~exist('outputdir','var') || isempty(outputdir)
   outputdir = 'GLMestimatesingletrialoutputs';
 end
 if ~exist('opt','var') || isempty(opt)
-  opt = struct();
+  opt = struct;
 end
 if ~isfield(opt,'wantlibrary') || isempty(opt.wantlibrary)
   opt.wantlibrary = 1;
@@ -375,7 +377,7 @@ if ischar(outputdir)
   mkdirquiet(outputdir);
 end
 if any(opt.wantfileoutputs)
-  assert(ischar(outputdir),'you must specify an <outputdir> to get file outputs');
+  assert(ischar(outputdir),'you must specify an <outputdir> in order to get file outputs');
 end
 
 % deal with special library stuff
@@ -686,21 +688,21 @@ end
 if opt.wantglmdenoise==0
   pcnum = 0;
   xvaltrend = [];
-  totalbadness = [];
+  glmbadness = [];
   pcvoxels = [];
 
 % in this case, the user decides (and we can skip the cross-validation)
 elseif opt.pcstop <= 0
   pcnum = -opt.pcstop;
   xvaltrend = [];
-  totalbadness = [];
+  glmbadness = [];
   pcvoxels = [];
 
 % otherwise, we have to do a lot of work
 else
   
   % initialize
-  totalbadness = zeros(nx*ny*nz,1+opt.numpcstotry,'single');    % X * Y * Z x 1+npc  [squared beta error for different numbers of PCs]
+  glmbadness = zeros(nx*ny*nz,1+opt.numpcstotry,'single');    % X * Y * Z x 1+npc  [squared beta error for different numbers of PCs]
   
   % loop over chunks
   fprintf('*** CROSS-VALIDATING DIFFERENT NUMBERS OF REGRESSORS ***\n');
@@ -749,7 +751,7 @@ else
       end
   
       % compute the cross-validation performance values
-      totalbadness(relix,:) = calcbadness(opt.xvalscheme,validcolumns,stimix,results0);  % voxels x regularization levels
+      glmbadness(relix,:) = calcbadness(opt.xvalscheme,validcolumns,stimix,results0);  % voxels x regularization levels
       clear results0;
   
     end
@@ -770,7 +772,7 @@ else
     num = min(100,length(ix2));
     ix = ix2(ix3(1:num));
   end
-  xvaltrend = -median(totalbadness(ix,:),1);  % NOTE: sign flip so that high is good
+  xvaltrend = -median(glmbadness(ix,:),1);  % NOTE: sign flip so that high is good
   assert(all(isfinite(xvaltrend)));
 
   % create for safe-keeping
@@ -804,7 +806,7 @@ else
   pcnum = chosen;
   
   % deal with dimensions
-  totalbadness = reshape(totalbadness,nx,ny,nz,[]);
+  glmbadness = reshape(glmbadness,nx,ny,nz,[]);
   
 end
 
@@ -934,14 +936,15 @@ for ttt=1:length(todo)
       % perform cross-validation if necessary
       if isnan(fractoselectix)
         
+        % compute the cross-validation performance values
+        rrbadness = calcbadness(opt.xvalscheme,validcolumns,stimix,results0);
+
         % this is the weird special case where we have to ignore the artificially added 1
         if opt.fracs(1) ~= 1
-          badness = calcbadness(opt.xvalscheme,validcolumns,stimix,results0(2:end));
-          [~,FRACindex0] = min(badness,[],2);
+          [~,FRACindex0] = min(rrbadness(:,2:end),[],2);
           FRACindex0 = FRACindex0 + 1;
         else
-          badness = calcbadness(opt.xvalscheme,validcolumns,stimix,results0);  % compute the cross-validation performance values
-          [~,FRACindex0] = min(badness,[],2);  % pick best frac (FRACindex0 is V x 1 with the index of the best frac)
+          [~,FRACindex0] = min(rrbadness,[],2);  % pick best frac (FRACindex0 is V x 1 with the index of the best frac)
         end
 
       % if we already know fractoselectix, skip the cross-validation
@@ -952,7 +955,7 @@ for ttt=1:length(todo)
       % prepare output
       FRACvalue(relix) = fracstouse(FRACindex0);
       for ll=1:length(fracstouse)
-        ii = find(FRACindex0==ll);
+        ii = find(FRACindex0==ll);  % indices of voxels that chose the llth frac
       
         % scale and offset to match the unregularized result
         if autoscaletouse
@@ -988,12 +991,12 @@ for ttt=1:length(todo)
   
   % save to disk if desired
   if whmodel==3
-    allvars = {'HRFindex','HRFindexrun','totalbadness','pcvoxels','pcnum','xvaltrend', ...
+    allvars = {'HRFindex','HRFindexrun','glmbadness','pcvoxels','pcnum','xvaltrend', ...
                'noisepool','pcregressors','modelmd','R2','R2run','meanvol'};
     file0 = fullfile(outputdir,'TYPEC_FITHRF_GLMDENOISE.mat');
   else
-    allvars = {'HRFindex','HRFindexrun','totalbadness','pcvoxels','pcnum','xvaltrend', ...
-               'noisepool','pcregressors','modelmd','R2','R2run','FRACvalue','scaleoffset','meanvol'};
+    allvars = {'HRFindex','HRFindexrun','glmbadness','pcvoxels','pcnum','xvaltrend', ...
+               'noisepool','pcregressors','modelmd','R2','R2run','rrbadness','FRACvalue','scaleoffset','meanvol'};
     file0 = fullfile(outputdir,'TYPED_FITHRF_GLMDENOISE_RR.mat');
   end
   if opt.wantfileoutputs(whmodel)==1
@@ -1016,7 +1019,7 @@ for ttt=1:length(todo)
     end
     if opt.wantfracridge==1 && is3d
       imwrite(uint8(255*makeimagestack(R2,[0 100]).^0.5),hot(256),fullfile(outputdir,'typeD_R2.png'));
-      imwrite(uint8(255*makeimagestack(FRACvalue,[0 1])),bone(256),fullfile(outputdir,'FRACvalue.png'));
+      imwrite(uint8(255*makeimagestack(FRACvalue,[0 1])),copper(256),fullfile(outputdir,'FRACvalue.png'));
     end
   end
 
@@ -1040,9 +1043,12 @@ function badness = calcbadness(xvals,validcolumns,stimix,results)
 % <validcolumns> is a cell vector, each element is the vector of trial indices associated with the run
 % <stimix> is a cell vector, each element is the vector of actual condition numbers occurring with a given run
 % <results> is a 1 x n with results. the first one is SPECIAL and is unregularized.
+%
+% return <badness> as voxels x hyperparameters with the sum of the squared error from cross-validation.
+% the testing data consists of the beta weights from results(1), i.e. unregularized beta weights.
 
 % initialize
-badness = zeros(size(results(1).modelmd{2},1),length(results));  % voxels x hyperparameters with the sum of the squared error from cross-validation
+badness = zeros(size(results(1).modelmd{2},1),length(results));
 
 % calc
 alltheruns = catcell(2,xvals);
@@ -1075,8 +1081,10 @@ for xx=1:length(xvals)
 %          hashrec{testids(ttt)} = mean(results(ll).modelmd{2}(:,traincols(haveix)),2);  % voxels x 1
 %          hashrec{testids(ttt)} = results(ll).modelmd{2}(:,traincols(haveix));  % voxels x instances
 %        end
+        
+        % compute squared error of all training betas against the current testing beta, and accumulate!!
         badness(:,ll) = badness(:,ll) + sum((results(ll).modelmd{2}(:,traincols(haveix)) - ...
-                                             repmat(results(1).modelmd{2}(:,testcols(ttt)),[1 length(haveix)])).^2,2);  % NOTICE the results(1)
+                                             repmat(results(1).modelmd{2}(:,testcols(ttt)),[1 length(haveix)])).^2,2);  % NOTICE the use of results(1)
 
       end
     end
@@ -1093,7 +1101,7 @@ end
   % rvals = [1 3 5 10 20 30];
   % cmap0 = jet(length(rvals));
   % for pp=1:length(rvals)
-  %   temp = totalbadness(onoffR2(:)>rvals(pp),:);
+  %   temp = glmbadness(onoffR2(:)>rvals(pp),:);
   %   plot(0:opt.numpcstotry,calczscore(median(temp,1)),'-','Color',cmap0(pp,:));
   % end
   % straightline(pcnum,'v','k-');
@@ -1107,7 +1115,7 @@ end
   % for p=1:opt.numpcstotry
   %   figureprep([100 100 900 900]);
   %   for cc=1:length(rvals)
-  %     temp = totalbadness(onoffR2(:)>rvals(cc),:);
+  %     temp = glmbadness(onoffR2(:)>rvals(cc),:);
   %     scatter(log(temp(:,1)),log(temp(:,1+p)),[colors{cc} '.']);
   %   end
   %   axissquarify;
