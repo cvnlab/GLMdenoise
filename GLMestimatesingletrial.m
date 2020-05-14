@@ -880,6 +880,11 @@ for ttt=1:length(todo)
   R2 =          zeros(nx,ny,nz,'single');               % X x Y x Z               [the R2 for the specific optimal frac]
   R2run =       zeros(nx*ny*nz,numruns,'single');       % X * Y * Z x runs        [the R2 separated by runs for the optimal frac]
   FRACvalue   = zeros(nx,ny,nz,'single');               % X x Y x Z               [best fraction]
+  if isnan(fractoselectix)
+    rrbadness   = zeros(nx*ny*nz,length(opt.fracs),'single');   % X x Y x Z       [rr cross-validation performance]
+  else
+    rrbadness = [];
+  end
   scaleoffset = zeros(nx*ny*nz,2,'single');             % X * Y * Z x 2           [scale and offset]
 
   % loop over chunks
@@ -937,14 +942,16 @@ for ttt=1:length(todo)
       if isnan(fractoselectix)
         
         % compute the cross-validation performance values
-        rrbadness = calcbadness(opt.xvalscheme,validcolumns,stimix,results0);
+        rrbadness0 = calcbadness(opt.xvalscheme,validcolumns,stimix,results0);
 
         % this is the weird special case where we have to ignore the artificially added 1
         if opt.fracs(1) ~= 1
-          [~,FRACindex0] = min(rrbadness(:,2:end),[],2);
+          [~,FRACindex0] = min(rrbadness0(:,2:end),[],2);
           FRACindex0 = FRACindex0 + 1;
+          rrbadness(relix,:) = rrbadness0(:,2:end);
         else
-          [~,FRACindex0] = min(rrbadness,[],2);  % pick best frac (FRACindex0 is V x 1 with the index of the best frac)
+          [~,FRACindex0] = min(rrbadness0,[],2);  % pick best frac (FRACindex0 is V x 1 with the index of the best frac)
+          rrbadness(relix,:) = rrbadness0;
         end
 
       % if we already know fractoselectix, skip the cross-validation
@@ -987,6 +994,9 @@ for ttt=1:length(todo)
   R2run = reshape(R2run,[nx ny nz numruns]);
   if ~isempty(scaleoffset)
     scaleoffset = reshape(scaleoffset,[nx ny nz 2]);
+  end
+  if isnan(fractoselectix)
+    rrbadness = reshape(rrbadness,nx,ny,nz,[]);
   end
   
   % save to disk if desired
