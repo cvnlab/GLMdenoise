@@ -220,11 +220,12 @@ function results = GLMestimatesingletrial(design,data,stimdur,tr,outputdir,opt)
 % <HRFindexrun> is HRFindex separated by run
 % <noisepool> indicates voxels selected for the noise pool
 % <pcregressors> indicates the full set of candidate GLMdenoise regressors that were found
-% <glmbadness> is cross-validation results for GLMdenoise
+% <glmbadness> is the cross-validation results for GLMdenoise
 % <pcvoxels> is the set of voxels used to summarize GLMdenoise cross-validation results
 % <xvaltrend> is the summary GLMdenoise cross-validation result on which pcnum selection is done
 % <pcnum> is the number of PCs that were selected for the final model
-% <FRACvalue> is the fractional regularization level chosen for each voxel
+% <FRACvalue> is the fractional ridge regression regularization level chosen for each voxel
+% <rrbadness> is the cross-validation results for the ridge regression
 % <scaleoffset> is the scale and offset applied to RR estimates to best match the unregularized result
 %
 % History:
