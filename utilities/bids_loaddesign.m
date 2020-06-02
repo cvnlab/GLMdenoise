@@ -1,5 +1,5 @@
 function [design, stimdur, ints2unique, unique2ints] = bids_loaddesign(sub,BIDS_path,session_type, session_number, tr)
-%%%
+%%% 2020-05-30 by Alex Kipnis
 %     Loads event markers (tsv files) into "design" cell-array, which is used as
 %     input for GLMdenoise. This script assumes that the presentation
 %     duration for each stimulus is constant and regressors that are not
