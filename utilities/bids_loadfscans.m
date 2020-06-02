@@ -1,5 +1,5 @@
 function [data, session_name] = bids_loadfscans(sub,prep_path,session_type, session_number, structural_space)
-%%%
+%%% 2020-05-30 by Alex Kipnis
 %     Load functional scans (nii.gz files) into "data" cell-array, used as
 %     input for GLMdenoise.
 %
