@@ -5,7 +5,7 @@
 % 0. Specify Path variables
 GLMd_path = "/home/alex/Documents/MATLAB/GLMdenoise"; cd(GLMd_path); %path to GLMdenoise toolbox
 BIDS_path = "/home/alex/ds001246/"; %folder path to BIDS formatted data
-prep_path = strcat('/mnt/locker/alex/ds001246/derivatives/fmriprep/sub-0'); %subfolder path to preprocessed data
+prep_path = strcat('/mnt/locker/alex/ds001246/derivatives/fmriprep/sub-0'); %subfolder path to fMRIprep data
 json_path = strcat(BIDS_path, 'task-perception_bold.json'); %path to metadata (.json file)
 
 %% 1. Load in the data
