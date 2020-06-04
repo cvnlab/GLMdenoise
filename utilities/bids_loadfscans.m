@@ -1,5 +1,5 @@
 function [data, session_name] = bids_loadfscans(sub,prep_path,session_type, session_number, structural_space)
-%%% 2020-05-30 by Alex Kipnis
+%%% 2020-05-30 written by Alex Kipnis (tested on https://openneuro.org/datasets/ds001246/versions/1.2.1 after running fMRIprep on sub-01)
 %     Load functional scans (nii.gz files) into "data" cell-array, used as
 %     input for GLMdenoise.
 %
