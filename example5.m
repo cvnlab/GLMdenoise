@@ -1,12 +1,14 @@
-%% GLMdenoise on preprocessed fMRI data in BIDS format
-% Find example dataset on https://openneuro.org/datasets/ds001246/versions/1.2.1
+%% Example 5: Run GLMdenoise on data in BIDS format
+%% 2020-05-30 written by Alex Kipnis (tested on https://openneuro.org/datasets/ds001246/versions/1.2.1 after running fMRIprep on sub-01)
+% This script assumes you have a raw dataset in BIDS format (https://bids.neuroimaging.io/) with preprocessed data in its "derivatives" subdirectory 
+
+% 0. Specify Path variables
 GLMd_path = "/home/alex/Documents/MATLAB/GLMdenoise"; cd(GLMd_path); %path to GLMdenoise toolbox
 BIDS_path = "/home/alex/ds001246/"; %folder path to BIDS formatted data
 prep_path = strcat('/mnt/locker/alex/ds001246/derivatives/fmriprep/sub-0'); %subfolder path to preprocessed data
 json_path = strcat(BIDS_path, 'task-perception_bold.json'); %path to metadata (.json file)
 
 %% 1. Load in the data
-
 sub = 1; %subject id
 session_type = 'perception';
 session_number = 2;
@@ -61,58 +63,57 @@ fprintf('The sampling rate (TR) is %.6f seconds.\n',tr);
 
 
 
-%% Sanity check
-% 
-% %% Inspect figures
-% % 'FinalModel.png' shows the R^2 of the final model fit.  The color range is
-% % 0% to 100% (but is nonlinear; see the color bar).  These R^2 values are not 
-% % cross-validated (thus, even voxels with no signal have positive R^2 values).
-% figure;
-% imagesc(imread('kamitanifigures/FinalModel.png'),[0 255]);
-% colormap(hot);
-% axis equal tight off;
-% cb = colorbar;
-% set(cb,'YTick',linspace(0,255,11),'YTickLabel',round((0:.1:1).^2 * 100));
-% title('Final model R^2 (not cross-validated)');
-% %%
-% 
-% % The outputs of GLMdenoisedata are contained in 
-% % the variables 'results' and 'denoiseddata'.
-% % Here we do some basic inspections of the outputs.
-% 
-% % Select a voxel to inspect.  This is done by finding voxels that have 
-% % cross-validated R^2 values between 0% and 5% under the initial model (no PCs),
-% % and then selecting the voxel that shows the largest improvement when
-% % using the final model.
-% ix = find(results.pcR2(:,:,:,1) > 0 & results.pcR2(:,:,:,1) < 5);
-% improvement = results.pcR2(:,:,:,1+results.pcnum) - results.pcR2(:,:,:,1);
-% [mm,ii] = max(improvement(ix));
-% ix = ix(ii);
-% [xx,yy,zz] = ind2sub(results.inputs.datasize{1}(1:3),ix);
-% 
-% 
-% % An alternative to using the GLM estimates provided by GLMdenoisedata is
-% % to use 'denoiseddata', which contains the original time-series data but 
-% % with the component of the data that is estimated to be due to the global 
-% % noise regressors subtracted off.  Here we inspect the denoised data for 
-% % the same example voxel examined earlier.  Note that the data components 
-% % that are present in 'denoiseddata' can be customized (see opt.denoisespec 
-% % in GLMdenoisedata.m).  The default parameters leave in the estimated baseline
-% % signal drift, which explains the drift in the plotted time-series.
-% figure; hold on;
-% set(gcf,'Units','points','Position',[100 100 700 250]);
-% data1 = flatten(data{1}(xx,yy,zz,:));
-% data2 = flatten(denoiseddata{1}(xx,yy,zz,:));
-% n = length(data1);
-% h1 = plot(data1,'r-');
-% h2 = plot(data2,'b-');
-% ax = axis; axis([0 n+1 ax(3:4)]);
-% legend([h1 h2],{'Original' 'Denoised'});
-% xlabel('Time point');
-% ylabel('MR signal');
+% Sanity check
+ 
+%% Inspect figures
+% 'FinalModel.png' shows the R^2 of the final model fit.  The color range is
+% 0% to 100% (but is nonlinear; see the color bar).  These R^2 values are not 
+% cross-validated (thus, even voxels with no signal have positive R^2 values).
+figure;
+imagesc(imread('kamitanifigures/FinalModel.png'),[0 255]);
+colormap(hot);
+axis equal tight off;
+cb = colorbar;
+set(cb,'YTick',linspace(0,255,11),'YTickLabel',round((0:.1:1).^2 * 100));
+title('Final model R^2 (not cross-validated)');
+%%
+
+% The outputs of GLMdenoisedata are contained in 
+% the variables 'results' and 'denoiseddata'.
+% Here we do some basic inspections of the outputs.
+
+% Select a voxel to inspect.  This is done by finding voxels that have 
+% cross-validated R^2 values between 0% and 5% under the initial model (no PCs),
+% and then selecting the voxel that shows the largest improvement when
+% using the final model.
+ix = find(results.pcR2(:,:,:,1) > 0 & results.pcR2(:,:,:,1) < 5);
+improvement = results.pcR2(:,:,:,1+results.pcnum) - results.pcR2(:,:,:,1);
+[mm,ii] = max(improvement(ix));
+ix = ix(ii);
+[xx,yy,zz] = ind2sub(results.inputs.datasize{1}(1:3),ix);
 
 
-%% Save data
+% An alternative to using the GLM estimates provided by GLMdenoisedata is
+% to use 'denoiseddata', which contains the original time-series data but 
+% with the component of the data that is estimated to be due to the global 
+% noise regressors subtracted off.  Here we inspect the denoised data for 
+% the same example voxel examined earlier.  Note that the data components 
+% that are present in 'denoiseddata' can be customized (see opt.denoisespec 
+% in GLMdenoisedata.m).  The default parameters leave in the estimated baseline
+% signal drift, which explains the drift in the plotted time-series.
+figure; hold on;
+set(gcf,'Units','points','Position',[100 100 700 250]);
+data1 = flatten(data{1}(xx,yy,zz,:));
+data2 = flatten(denoiseddata{1}(xx,yy,zz,:));
+n = length(data1);
+h1 = plot(data1,'r-');
+h2 = plot(data2,'b-');
+ax = axis; axis([0 n+1 ax(3:4)]);
+legend([h1 h2],{'Original' 'Denoised'});
+xlabel('Time point');
+ylabel('MR signal');
+
+% Optionally: Save data and clear your workspace
 s = struct('subject_id',[sub], 'session_type', [session_type], 'session_number', [session_number],...
     'session_name', [session_name], 'structural_space', [structural_space], 'metadata', [metadata],...
     'n_runs', [length(design)], 'data_dims', [mat2str(size(data{1}))], 'stimdur', [stimdur],...
