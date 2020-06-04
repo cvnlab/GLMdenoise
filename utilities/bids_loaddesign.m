@@ -1,9 +1,9 @@
 function [design, stimdur, ints2unique, unique2ints] = bids_loaddesign(sub,BIDS_path,session_type, session_number, tr)
-%%% 2020-05-30 written by Alex Kipnis (tested on https://openneuro.org/datasets/ds001246/versions/1.2.1 after running fMRIprep on sub-01) 
+% 2020-06-04 written by Alex Kipnis (tested on https://openneuro.org/datasets/ds001246/versions/1.2.1 after running fMRIprep on sub-01) 
 %     Loads event markers (tsv files) into "design" cell-array, which is used as
 %     input for GLMdenoise. This script assumes that the presentation
 %     duration for each stimulus is constant and regressors that are not
-%     stimulus IDs (e.g. prespecified noise regressors) will be added to the design matrix separately. 
+%     stimulus IDs will be added to the design matrix separately. 
 %
 %   
 %     Parameters: 
@@ -27,9 +27,9 @@ n = session_number; file_list = []; filename_list = {}; all_events={}; design = 
 fprintf('Transforming subject %d''s .tsv event files for "%s" sessions into design matrices.\n', sub, session_type)
 
 % Create path structures
-type_path = strcat(BIDS_path, 'sub-0', string(sub), '/ses-', session_type,'*');
+type_path = strcat(BIDS_path, 'sub-0', string(sub), filesep, 'ses-', session_type,'*');
 dir_BIDS = dir(type_path); %folder list of preprocessed data (we need this for nifti files);
-dir_ses = dir(strcat(dir_BIDS(n).folder, '/', dir_BIDS(n).name, '/func/')); %folder list for specified number of the session type
+dir_ses = dir(strcat(dir_BIDS(n).folder, filesep, dir_BIDS(n).name, filesep, 'func', filesep)); %folder list for specified number of the session type
 
 % collect file names for individual runs 
 for f = 1:length(dir_ses)
@@ -41,7 +41,7 @@ end
 
 % load files from filename_list
 for g = 1:length(file_list)
-    events = tdfread(strcat(dir_ses(f).folder, '/', string(filename_list(g)))); %append folder name with file name and load .tsv file    
+    events = tdfread(strcat(dir_ses(f).folder, filesep, string(filename_list(g)))); %append folder name with file name and load .tsv file    
     all_events = cat(2, all_events, events); %save all events
     stim_ids = cat(1, stim_ids, events.stim_id); %concatenate all stimulus IDs
 end

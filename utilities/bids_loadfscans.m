@@ -1,5 +1,5 @@
 function [data, session_name] = bids_loadfscans(sub,prep_path,session_type, session_number, structural_space)
-%%% 2020-05-30 written by Alex Kipnis (tested on https://openneuro.org/datasets/ds001246/versions/1.2.1 after running fMRIprep on sub-01)
+% 2020-06-04 written by Alex Kipnis (tested on https://openneuro.org/datasets/ds001246/versions/1.2.1 after running fMRIprep on sub-01) 
 %     Load functional scans (nii.gz files) into "data" cell-array, used as
 %     input for GLMdenoise.
 %
@@ -24,9 +24,9 @@ fprintf('Searching for subject %d''s NIfTI files, containing functional scans fo
     sub, session_type, structural_space)
 
 % Create path structures
-type_path = strcat(prep_path, string(sub), '/ses-', session_type,'*');
+type_path = strcat(prep_path, string(sub), filesep ,'ses-', session_type,'*');
 dir_prep = dir(type_path); %folder list of preprocessed data (we need this for nifti files);
-dir_ses = dir(strcat(dir_prep(n).folder, '/', dir_prep(n).name, '/func/')); %folder list for specified number of the session type
+dir_ses = dir(strcat(dir_prep(n).folder, filesep, dir_prep(n).name, filesep, 'func',filesep)); %folder list for specified number of the session type
 session_name = dir_prep(n).name;
 
 % collect file names for individual runs 
