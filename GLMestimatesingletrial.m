@@ -53,6 +53,15 @@ function results = GLMestimatesingletrial(design,data,stimdur,tr,outputdir,opt)
 %     {[1 2] [3 4] [5 6] [7 8]} which indicates to do 4 folds of cross-validation, 
 %     first holding out the 1st and 2nd runs, then the 3rd and 4th runs, etc.
 %     Default: {[1] [2] [3] ... [n]} where n is the number of runs.
+%   <sessionindicator> (optional) is 1 x n (where n is the number of runs) with
+%     positive integers indicating the run groupings that are interpreted as
+%     "sessions". The purpose of this input is to allow for session-wise z-scoring
+%     of single-trial beta weights for the purposes of hyperparameter evaluation. 
+%     Note that the z-scoring has effect only INTERNALLY: it is used merely to 
+%     calculate the cross-validation performance and the associated hyperparameter
+%     selection; the outputs of this function do not reflect z-scoring, and the user
+%     may wish to apply z-scoring. Default: 1*ones(1,n) which means to interpret all 
+%     runs as coming from the same session.
 %
 %   *** I/O FLAGS ***
 %
@@ -229,6 +238,9 @@ function results = GLMestimatesingletrial(design,data,stimdur,tr,outputdir,opt)
 % <scaleoffset> is the scale and offset applied to RR estimates to best match the unregularized result
 %
 % History:
+% - 2020/08/22 - Implement opt.sessionindicator. Also, now the cross-validation units now reflect
+%                the "session-wise z-scoring" hyperparameter selection approach; thus, the cross-
+%                validation units have been CHANGED relative to prior analyses!
 % - 2020/05/14 - Version 1.0 released!
 %                (Tweak some documentation; output more results; fix a small bug (opt.fracs(1)~=1).)
 % - 2020/05/12 - Add pcvoxels output.
@@ -305,6 +317,9 @@ if ~isfield(opt,'chunknum') || isempty(opt.chunknum)
 end
 if ~isfield(opt,'xvalscheme') || isempty(opt.xvalscheme)
   opt.xvalscheme = num2cell(1:numruns);
+end
+if ~isfield(opt,'sessionindicator') || isempty(opt.sessionindicator)
+  opt.sessionindicator = 1*ones(1,numruns);
 end
 if ~isfield(opt,'wantfileoutputs') || isempty(opt.wantfileoutputs)
   opt.wantfileoutputs = [1 1 1 1];
@@ -752,7 +767,7 @@ else
       end
   
       % compute the cross-validation performance values
-      glmbadness(relix,:) = calcbadness(opt.xvalscheme,validcolumns,stimix,results0);  % voxels x regularization levels
+      glmbadness(relix,:) = calcbadness(opt.xvalscheme,validcolumns,stimix,results0,opt.sessionindicator);  % voxels x regularization levels
       clear results0;
   
     end
@@ -943,7 +958,7 @@ for ttt=1:length(todo)
       if isnan(fractoselectix)
         
         % compute the cross-validation performance values
-        rrbadness0 = calcbadness(opt.xvalscheme,validcolumns,stimix,results0);
+        rrbadness0 = calcbadness(opt.xvalscheme,validcolumns,stimix,results0,opt.sessionindicator);
 
         % this is the weird special case where we have to ignore the artificially added 1
         if opt.fracs(1) ~= 1
@@ -1046,23 +1061,43 @@ end
 
 %%%%%
 
-function badness = calcbadness(xvals,validcolumns,stimix,results)
+function badness = calcbadness(xvals,validcolumns,stimix,results,sessionindicator)
 
-% function badness = calcbadness(xvals,validcolumns,stimix,results)
+% function badness = calcbadness(xvals,validcolumns,stimix,results,sessionindicator)
 %
 % <xvals> is a cell vector of vectors of run indices
 % <validcolumns> is a cell vector, each element is the vector of trial indices associated with the run
 % <stimix> is a cell vector, each element is the vector of actual condition numbers occurring with a given run
 % <results> is a 1 x n with results. the first one is SPECIAL and is unregularized.
+% <sessionindicator> is 1 x RUNS with positive integers indicating run groupings for sessions.
+%   this is used only to perform the session-wise z-scoring for the purposes of hyperparameter evaluation.
 %
 % return <badness> as voxels x hyperparameters with the sum of the squared error from cross-validation.
 % the testing data consists of the beta weights from results(1), i.e. unregularized beta weights.
+% note that the squared error is expressed in the z-score units (given that we z-score the
+% single-trial beta weights prior to evaluation of the different hyperparameters).
+
+% note:
+% the unregularized betas set the stage for the session-wise normalization:
+% for each session, we determine a fixed mu and sigma that are applied to
+% the session under all of the various regularization levels.
 
 % initialize
 badness = zeros(size(results(1).modelmd{2},1),length(results));
 
 % calc
-alltheruns = catcell(2,xvals);
+alltheruns = 1:length(validcolumns);
+
+% z-score transform the single-trial beta weights
+for p=1:max(sessionindicator)
+  wh = find(sessionindicator==p);
+  whcol = catcell(2,validcolumns(wh));
+  mn = mean(results(1).modelmd{2}(:,whcol),2);     % mean of unregularized case
+  sd = std(results(1).modelmd{2}(:,whcol),[],2);   % std dev of unregularized case
+  for q=1:length(results)
+    results(q).modelmd{2}(:,whcol) = zerodiv(results(q).modelmd{2}(:,whcol) - repmat(mn,[1 length(whcol)]),repmat(sd,[1 length(whcol)]),0,0);
+  end
+end
 
 % do cross-validation
 for xx=1:length(xvals)
