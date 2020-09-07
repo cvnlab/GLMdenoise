@@ -1031,7 +1031,7 @@ for ttt=1:length(todo)
 
   % figures?
   if wantfig
-    if opt.wantglmdenoise==1
+    if whmodel==3
       if is3d
         imwrite(uint8(255*makeimagestack(noisepool,[0 1])),gray(256),fullfile(outputdir,'noisepool.png'));
         imwrite(uint8(255*makeimagestack(pcvoxels, [0 1])),gray(256),fullfile(outputdir,'pcvoxels.png'));
@@ -1043,7 +1043,7 @@ for ttt=1:length(todo)
       ylabel('Cross-validation performance (higher is better)');
       figurewrite('xvaltrend',[],[],outputdir);
     end
-    if opt.wantfracridge==1 && is3d
+    if whmodel==4 && is3d
       imwrite(uint8(255*makeimagestack(R2,[0 100]).^0.5),hot(256),fullfile(outputdir,'typeD_R2.png'));
       imwrite(uint8(255*makeimagestack(FRACvalue,[0 1])),copper(256),fullfile(outputdir,'FRACvalue.png'));
     end
