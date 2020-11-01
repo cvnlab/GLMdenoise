@@ -1050,6 +1050,8 @@ if opt.wantpercentbold
     results.modelmd{2} = bsxfun(@times,results.modelmd{2},con);
     results.modelse{2} = bsxfun(@times,results.modelse{2},con);
   end
+  results.residstd          = bsxfun(@times,results.residstd,con);
+  results.residstdlowpass   = bsxfun(@times,results.residstdlowpass,con);
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% GENERATE FIGURES
