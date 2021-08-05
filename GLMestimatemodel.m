@@ -85,8 +85,8 @@ function [results,cache] = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfk
 %     only when <hrfmodel> is 'optimize'.  Special case is 1 which means
 %     all voxels can be potentially chosen.  Default: 1.
 %   <wantpercentbold> (optional) is whether to convert the amplitude estimates
-%     in 'models', 'modelmd', and 'modelse' to percent BOLD change.  This is
-%     done as the very last step, and is accomplished by dividing by the 
+%     in 'models', 'modelmd', 'modelse', and 'residstd*' to percent BOLD change.  
+%     This is done as the very last step, and is accomplished by dividing by the 
 %     absolute value of 'meanvol' and multiplying by 100.  (The absolute 
 %     value prevents negative values in 'meanvol' from flipping the sign.)
 %     Default: 1.
@@ -95,6 +95,11 @@ function [results,cache] = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfk
 %      the initial HRF.  Set <hrfthresh> to -Inf if you never want to reject
 %      the estimated HRF.  Default: 50.
 %   <suppressoutput> (optional) is whether to suppress fprintf statements.  Default: 0.
+%   <lambda> (optional) is the lambda constant to use for ridge regression.
+%     This takes effect only for the 'fir' and 'assume' cases.  Default: 0.
+%   <frac> (optional) is the frac to use for fractional ridge regression.
+%     This takes effect only for the 'fir' and 'assume' cases.  Default: [].
+%     If [], we use <lambda>. If not [], we use <frac>.
 % <cache> (optional) is used for speeding up execution.  If you are calling this
 %   function with identical inputs except potentially for different <data>, then
 %   if you can take the <cache> returned by the first call and re-use it for
@@ -130,6 +135,11 @@ function [results,cache] = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfk
 %   In the bootstrap and cross-validation cases, <hrffitvoxels> indicates the
 %   voxels corresponding to the last iteration.
 % <meanvol> is X x Y x Z with the mean of all volumes
+% <residstd> is X x Y x Z with std dev of residuals of the fit (where
+%   fit is computed using only the polynomials and the task regressors).
+%   This is converted to units of percent signal change (if <opt.wantpercentbold>).
+% <residstdlowpass> is like <residstd> except that the residuals are
+%   low-pass filtered at a cutoff of 0.1 Hz before computing the std dev.
 % <inputs> is a struct containing all inputs used in the call to this
 %   function, excluding <data>.  We additionally include a field called 
 %   'datasize' which contains the size of each element of <data>.
@@ -210,6 +220,8 @@ function [results,cache] = GLMestimatemodel(design,data,stimdur,tr,hrfmodel,hrfk
 % execution halts.
 %
 % History:
+% - 2020/05/09: add opt.frac
+% - 2019/03/22: return design in cache, add opt.lambda
 % - 2014/07/31: return rawdesign in cache; change cubic to pchip to avoid warnings
 % - 2013/12/11: now, after we are done using opt.seed, we reset the random number seed 
 %               to something random (specifically, sum(100*clock)).
@@ -326,6 +338,12 @@ if ~isfield(opt,'hrfthresh') || isempty(opt.hrfthresh)
 end
 if ~isfield(opt,'suppressoutput') || isempty(opt.suppressoutput)
   opt.suppressoutput = 0;
+end
+if ~isfield(opt,'lambda') || isempty(opt.lambda)
+  opt.lambda = 0;
+end
+if ~isfield(opt,'frac') || isempty(opt.frac)
+  opt.frac = [];
 end
 if isequal(hrfmodel,'assume') || isequal(hrfmodel,'optimize')
   hrfknobs = normalizemax(hrfknobs);
@@ -472,6 +490,9 @@ case 'xval'
 
 end
 
+% clear
+clear data2;
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% PREPARE MODEL ESTIMATES FOR OUTPUT
 
 % in this special case, we do not have to perform this section,
@@ -550,7 +571,9 @@ end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% COMPUTE MODEL FITS (IF NECESSARY)
 
-if ~(mode==2)
+%%% to save memory, perhaps construct modelfit in chunks??
+
+if ~(ismember(mode,[2]))
 
   if ~opt.suppressoutput, fprintf('computing model fits...');, end
   switch resamplecase
@@ -581,6 +604,15 @@ if ~(mode==2 || mode==3)
 
   % calculate overall R^2 [beware: MEMORY]
   results.R2 = reshape(calccodcell(modelfit,data,1)',[xyzsize 1]);  % notice that we use 'data' not 'data2'
+  
+  % compute residual std
+  lowthresh = 0.1;  % 0.1 Hz is the upper limit [HARD-CODED]
+    % the data already have polynomials removed.
+    % above, we just removed polynomials from the model fits (or predictions).
+    % so, we just need to subtract these two to get the residuals
+  results.residstd = reshape(sqrt(sum(catcell(1,cellfun(@(a,b) sum((a-b).^2,1),data,modelfit,'UniformOutput',0)),1) ./ (sum(volcnt)-1)),[xyzsize 1]);
+  results.residstdlowpass = reshape(sqrt(sum(catcell(1,cellfun(@(a,b) ...
+    sum( tsfilter((a-b)',constructbutterfilter1D(size(a,1),lowthresh*(size(a,1)*tr)))'.^2,1),data,modelfit,'UniformOutput',0)),1) ./ (sum(volcnt)-1)),[xyzsize 1]);
 
   % calculate R^2 on a per-run basis [beware: MEMORY]
   results.R2run = catcell(dimdata+1,cellfun(@(x,y) reshape(calccod(x,y,1,0,0)',[xyzsize 1]),modelfit,data,'UniformOutput',0));
@@ -643,13 +675,17 @@ if opt.wantpercentbold && ~(isequal(resamplecase,'xval') && mode==1)
   con = 1./abs(results.meanvol) * 100;
   switch hrfmodel
   case 'fir'
-    results.models = bsxfun(@times,results.models,con);
-    results.modelmd = bsxfun(@times,results.modelmd,con);
-    results.modelse = bsxfun(@times,results.modelse,con);
+    results.models =     bsxfun(@times,results.models,con);
+    results.modelmd =    bsxfun(@times,results.modelmd,con);
+    results.modelse =    bsxfun(@times,results.modelse,con);
   case {'assume' 'optimize'}
-    results.models{2} = bsxfun(@times,results.models{2},con);
+    results.models{2} =  bsxfun(@times,results.models{2},con);
     results.modelmd{2} = bsxfun(@times,results.modelmd{2},con);
     results.modelse{2} = bsxfun(@times,results.modelse{2},con);
+  end
+  if isfield(results,'residstd')
+    results.residstd          = bsxfun(@times,results.residstd,con);
+    results.residstdlowpass   = bsxfun(@times,results.residstdlowpass,con);
   end
 end
 
@@ -699,10 +735,17 @@ case 'fir'
     % remove polynomials and extra regressors
     design{p} = combinedmatrix{p}*design{p};  % time x L*conditions
 
+    % save a record of the projected-out design matrix
+    cache.design{p} = design{p};
+
   end
   
   % fit model
-  f = mtimescell(olsmatrix2(cat(1,design{:})),data2);  % L*conditions x voxels
+  if ~isempty(opt.frac)
+    f = permute(fracridge(cat(1,design{:}),opt.frac,cat(1,data2{:})),[1 3 2]);  % L*conditions x voxels
+  else
+    f = mtimescell(olsmatrix2(cat(1,design{:}),opt.lambda),data2);  % L*conditions x voxels
+  end
   f = permute(reshape(f,hrfknobs+1,numconditions,[]),[3 2 1]);  % voxels x conditions x L
 
 case 'assume'
@@ -745,6 +788,9 @@ case 'assume'
       
       % remove polynomials and extra regressors
       design{p} = combinedmatrix{p}*temp;  % time x conditions
+
+      % save a record of the projected-out design matrix
+      cache.design{p} = design{p};
     
     % if regular matrix case
     else
@@ -760,12 +806,19 @@ case 'assume'
       % remove polynomials and extra regressors
       design{p} = combinedmatrix{p}*design{p};  % time x conditions
 
+      % save a record of the projected-out design matrix
+      cache.design{p} = design{p};
+
     end
 
   end
   
   % fit model
-  f = mtimescell(olsmatrix2(cat(1,design{:})),data2);  % conditions x voxels
+  if ~isempty(opt.frac)
+    f = permute(fracridge(cat(1,design{:}),opt.frac,cat(1,data2{:})),[1 3 2]);  % conditions x voxels
+  else
+    f = mtimescell(olsmatrix2(cat(1,design{:}),opt.lambda),data2);  % conditions x voxels
+  end
   f = {hrfknobs f'};
 
 case 'optimize'
