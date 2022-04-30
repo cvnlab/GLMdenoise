@@ -3,6 +3,9 @@
 GLMdenoise is a MATLAB toolbox for analyzing and denoising task-based fMRI data.
 It is developed by Kendrick Kay (kendrick@post.harvard.edu).
 
+*** GLMdenoise is a subset of, and superseded, by a new tool called GLMsingle.
+*** See http://glmsingle.org for details.
+
 To use the toolbox, add it to your MATLAB path:
   addpath(genpath('GLMdenoise'));
 
