@@ -5,11 +5,10 @@ function [f,mns,sds,gmfit] = findtailthreshold(v,wantfig)
 % <v> is a vector of values
 % <wantfig> (optional) is whether to plot a diagnostic figure. Default: 1.
 %
-% Fit a Gaussian Mixture Model (with n=2)
-% to the data and find the point that is greater than
-% the median and at which the posterior probability
-% is equal (50/50) across the two Gaussians.
-% This serves as a nice "tail threshold".
+% Fit a Gaussian Mixture Model (with n=2) to the data and 
+% find the point at which the posterior probability is 
+% equal (50/50) across the two Gaussians. This serves
+% as a nice "tail threshold".
 %
 % To save on computational load, we take a random subset of
 % size 1000000 if there are more than that number of values.
@@ -28,7 +27,7 @@ function [f,mns,sds,gmfit] = findtailthreshold(v,wantfig)
 % internal constants
 numreps = 3;      % number of restarts for the GMM
 maxsz = 1000000;  % maximum number of values to consider
-nprecision = 500; % linearly spaced values between median and upper robust range
+nprecision = 500; % linearly spaced values between lower and upper robust range
 
 % inputs
 if ~exist('wantfig','var') || isempty(wantfig)
@@ -47,17 +46,33 @@ gmfit = fitgmdist(v(:),2,'Replicates',numreps);
 
 % figure out a nice range
 rng = robustrange(v(:));
+rng(1) = min(rng(1),min(gmfit.mu));  % include the smaller of the two distribution means if necessary
+rng(2) = max(rng(2),max(gmfit.mu));  % include the bigger of the two distribution means if necessary
 
 % evaluate posterior
-allvals = linspace(median(v),rng(2),nprecision);
+allvals = linspace(rng(1),rng(2),nprecision);
 checkit = zeros(length(allvals),2);
 for qq=1:length(allvals)
   checkit(qq,:) = posterior(gmfit,allvals(qq));
 end
 
 % figure out crossing
-assert(any(checkit(:,1) > .5) && any(checkit(:,1) < .5),'no crossing of 0.5 detected');
-[mn,ix] = min(abs(checkit(:,1)-.5));
+if checkit(end,1) > .5
+  whdist = 1;  % if the first distribution is the higher one on the right
+else
+  whdist = 2;  % if the second distribution is the higher one on the right
+end  
+for ix=size(checkit,1):-1:1
+  if checkit(ix,whdist) <= .5
+    break;
+  end
+end
+if checkit(ix,whdist) > .5
+  warning('no crossing of 0.5 found. results may be inaccurate!');
+end
+%OLD:
+%assert(any(checkit(:,1) > .5) && any(checkit(:,1) < .5),'no crossing of 0.5 detected');
+%[mn,ix] = min(abs(checkit(:,1)-.5));
 
 % return it
 f = allvals(ix);
